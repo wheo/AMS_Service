@@ -28,6 +28,7 @@ namespace AMS_Service
         private int _counter = 0;
 
         private int _SnmpPort = 162;
+        private int _PollingSec = 10;
         private JsonConfig jsonConfig;
 
         protected Thread m_threadSnmpGet;
@@ -41,10 +42,6 @@ namespace AMS_Service
         public Service1()
         {
             InitializeComponent();
-            m_get_delay = new TimeSpan(0, 0, 0, 1, 0);
-            m_trap_delay = new TimeSpan(0, 0, 0, 0, 500);
-            LoadConfig();
-            LogInit();
         }
 
         private bool LoadConfig()
@@ -61,7 +58,7 @@ namespace AMS_Service
                     //default value
                     jsonConfig.ip = "127.0.0.1";
                     jsonConfig.port = 3306;
-                    jsonConfig.id = "root";
+                    jsonConfig.id = "tnmtech";
                     jsonConfig.pw = "tnmtech";
                     jsonConfig.DatabaseName = "TNM_NMS";
 
@@ -73,6 +70,14 @@ namespace AMS_Service
                 jsonConfig = JsonConvert.DeserializeObject<JsonConfig>(jsonString);
 
                 DatabaseManager.GetInstance().SetConnectionString(jsonConfig.ip, jsonConfig.port, jsonConfig.id, jsonConfig.pw, jsonConfig.DatabaseName);
+
+                _SnmpPort = Snmp.GetSnmpPort();
+                _PollingSec = Snmp.GetPollingSec();
+
+                m_get_delay = new TimeSpan(0, 0, 0, _PollingSec, 0);
+                m_trap_delay = new TimeSpan(0, 0, 0, 0, 500);
+                logger.Info("SnmpPort : " + _SnmpPort);
+                logger.Info("Polling Sec : " + _PollingSec);
             }
             catch (FileLoadException e)
             {
@@ -90,6 +95,8 @@ namespace AMS_Service
 
         protected override void OnStart(string[] args)
         {
+            LoadConfig();
+            LogInit();
             ThreadStart tsGet = new ThreadStart(this.SnmpGetService);
             ThreadStart tsTrap = new ThreadStart(this.TrapListener);
             m_shutdownEvent = new ManualResetEvent(false);

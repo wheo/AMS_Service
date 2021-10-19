@@ -34,7 +34,22 @@ namespace AMS_Service
         private string _Color;
 
         [JsonIgnore]
-        public string Uptime { get; set; }
+        private string _Uptime;
+
+        [JsonIgnore]
+        public string Uptime
+        {
+            get { return _Uptime; }
+
+            set
+            {
+                if (_Uptime != value)
+                {
+                    _Uptime = value;
+                    OnPropertyChanged(new PropertyChangedEventArgs("Uptime"));
+                }
+            }
+        }
 
         public string Id { get; set; }
         public string Ip { get; set; }
@@ -312,6 +327,9 @@ namespace AMS_Service
             this.UnitName = s.UnitName;
             this.Status = s.Status;
             this.Color = s.Color;
+            this.Location = s.Location;
+            this.Uptime = s.Uptime;
+            this.Version = s.Version;
         }
 
         public event PropertyChangedEventHandler PropertyChanged = delegate { };
@@ -324,7 +342,8 @@ namespace AMS_Service
                 if (e.PropertyName.Equals("Status") ||
                     e.PropertyName.Equals("Name") ||
                         e.PropertyName.Equals("Location") ||
-                        e.PropertyName.Equals("ErrorCount"))
+                        e.PropertyName.Equals("ErrorCount") ||
+                        e.PropertyName.Equals("Uptime"))
                 {
                     UpdateServerStatus();
                 }

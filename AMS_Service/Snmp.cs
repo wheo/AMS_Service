@@ -100,6 +100,24 @@ namespace AMS_Service
             return value;
         }
 
+        public static int GetPollingSec()
+        {
+            int value = 0;
+            string query = String.Format($"SELECT v FROM setting WHERE k = 'polling_sec'");
+            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
+            {
+                conn.Open();
+                MySqlCommand cmd = new MySqlCommand(query, conn);
+                MySqlDataReader rdr = cmd.ExecuteReader();
+                while (rdr.Read())
+                {
+                    value = Convert.ToInt32(rdr["v"].ToString());
+                }
+                rdr.Close();
+            }
+            return value;
+        }
+
         public static bool IsEnableTrap(string compareID)
         {
             logger.Debug(string.Format($"compareID : {compareID}"));
