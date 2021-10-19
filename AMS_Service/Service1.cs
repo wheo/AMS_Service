@@ -59,9 +59,9 @@ namespace AMS_Service
                 {
                     logger.Info(jsonConfig.configFileName + " 파일이 없습니다. 환경설정 파일을 읽지 못해 기본값으로 설정합니다.");
                     //default value
-                    jsonConfig.ip = "192.168.2.66";
-                    jsonConfig.port = 53306;
-                    jsonConfig.id = "tnmtech";
+                    jsonConfig.ip = "127.0.0.1";
+                    jsonConfig.port = 3306;
+                    jsonConfig.id = "root";
                     jsonConfig.pw = "tnmtech";
                     jsonConfig.DatabaseName = "TNM_NMS";
 
