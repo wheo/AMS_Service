@@ -120,7 +120,12 @@ namespace AMS_Service
 
         public static bool IsEnableTrap(string compareID)
         {
-            logger.Debug(string.Format($"compareID : {compareID}"));
+            logger.Info(string.Format($"compareID : {compareID}"));
+            if (string.IsNullOrEmpty(compareID))
+            {
+                logger.Info($"compareID is null");
+                return false;
+            }
             string value = null;
             string query = String.Format(@"SELECT S.id, T.translate FROM translate T
 INNER JOIN snmp S ON S.name = T.name

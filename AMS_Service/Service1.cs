@@ -414,7 +414,7 @@ namespace AMS_Service
                                 else
                                 {
                                     string value = Snmp.GetNameFromOid(v.Oid.ToString());
-                                    logger.Info("value : " + value);
+                                    logger.Info("GetNameFromOid value : " + value);
 
                                     if (value.LastIndexOf("Level") > 0)
                                     {
