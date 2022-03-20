@@ -82,7 +82,7 @@ namespace AMS_Service
             }
         }
 
-        static public string _LocalIp { get; } = Util.GetLocalIpAddress();
+        public static string _LocalIp { get; } = Util.GetLocalIpAddress();
 
         public int idx { get; set; }
 
@@ -150,7 +150,7 @@ ORDER BY L.start_at {3} {4}", _LocalIp, is_active, date_query, order_query, limi
             {
                 conn.Open();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
-                cmd.Prepare();
+                //cmd.Prepare();
                 MySqlDataAdapter adpt = new MySqlDataAdapter(query, conn);
                 dt.Clear();
                 adpt.Fill(dt);
@@ -198,7 +198,7 @@ VALUES (@client_ip, @ip, @port, @community, @level, @oid, @value, @snmp_type_val
                     }
                     cmd.Parameters.AddWithValue("@snmp_type_value", trap.TypeValue);
 
-                    cmd.Prepare();
+                    //cmd.Prepare();
                     ret = cmd.ExecuteNonQuery();
                 }
                 else if (trap.TypeValue == "end")
@@ -219,7 +219,7 @@ VALUES (@client_ip, @ip, @port, @community, @level, @oid, @value, @snmp_type_val
                     cmd.Parameters.AddWithValue("@oid", trap.Oid);
                     cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
 
-                    cmd.Prepare();
+                    //cmd.Prepare();
                     ret = cmd.ExecuteNonQuery();
                 }
             }
@@ -237,7 +237,7 @@ VALUES (@client_ip, @ip, @port, @community, @level, @oid, @value, @snmp_type_val
                 conn.Open();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
                 cmd.Parameters.AddWithValue("@idx", idx);
-                cmd.Prepare();
+                //cmd.Prepare();
                 ret = cmd.ExecuteNonQuery();
             }
             return ret;
@@ -252,7 +252,7 @@ VALUES (@client_ip, @ip, @port, @community, @level, @oid, @value, @snmp_type_val
             {
                 conn.Open();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
-                cmd.Prepare();
+                //cmd.Prepare();
                 ret = cmd.ExecuteNonQuery();
             }
             return ret;
@@ -269,7 +269,7 @@ VALUES (@client_ip, @ip, @port, @community, @level, @oid, @value, @snmp_type_val
                 MySqlCommand cmd = new MySqlCommand(query, conn);
                 cmd.Parameters.AddWithValue("@idx", idx);
 
-                cmd.Prepare();
+                //cmd.Prepare();
                 ret = cmd.ExecuteNonQuery();
             }
 

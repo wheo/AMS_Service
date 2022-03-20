@@ -81,7 +81,7 @@ namespace AMS_Service
             }
             catch (FileLoadException e)
             {
-                logger.Info(e.ToString());
+                logger.Error(e.ToString());
             }
 
             return true;
@@ -291,268 +291,274 @@ namespace AMS_Service
             int inlen = -1;
             logger.Info(string.Format($"Waiting for snmp trap"));
             bool signal = false;
-
-            while (true)
+            try
             {
-                signal = m_shutdownEvent.WaitOne(m_trap_delay, true);
-                if (signal)
+                while (true)
                 {
-                    break;
-                }
-
-                byte[] indata = new byte[16 * 1024];
-                // 16KB receive buffer int inlen = 0;
-                IPEndPoint peer = new IPEndPoint(IPAddress.Any, 0);
-                EndPoint inep = (EndPoint)peer;
-                try
-                {
-                    inlen = socket.ReceiveFrom(indata, ref inep);
-                }
-                catch (Exception)
-                {
-                    //logger.Error(string.Format("Exception {0}", ex.Message));
-                    inlen = -1;
-                }
-                if (inlen > 0)
-                {
-                    // Check protocol version int
-                    int ver = SnmpPacket.GetProtocolVersion(indata, inlen);
-                    if (ver == (int)SnmpVersion.Ver1)
+                    signal = m_shutdownEvent.WaitOne(m_trap_delay, true);
+                    if (signal)
                     {
-                        // Parse SNMP Version 1 TRAP packet
-                        SnmpV1TrapPacket pkt = new SnmpV1TrapPacket();
-                        pkt.decode(indata, inlen);
-                        logger.Info(string.Format("** SNMP Version 1 TRAP received from {0}:", inep.ToString()));
-                        logger.Info(string.Format("*** Trap generic: {0}", pkt.Pdu.Generic));
-                        logger.Info(string.Format("*** Trap specific: {0}", pkt.Pdu.Specific));
-                        logger.Info(string.Format("*** Agent address: {0}", pkt.Pdu.AgentAddress.ToString()));
-                        logger.Info(string.Format("*** Timestamp: {0}", pkt.Pdu.TimeStamp.ToString()));
-                        logger.Info(string.Format("*** VarBind count: {0}", pkt.Pdu.VbList.Count));
-                        logger.Info("*** VarBind content:");
-                        foreach (Vb v in pkt.Pdu.VbList)
-                        {
-                            logger.Info(string.Format("**** {0} {1}: {2}", v.Oid.ToString(), SnmpConstants.GetTypeName(v.Value.Type), v.Value.ToString()));
-                        }
-                        logger.Info("** End of SNMP Version 1 TRAP data.");
+                        break;
                     }
-                    else
+
+                    byte[] indata = new byte[16 * 1024];
+                    // 16KB receive buffer int inlen = 0;
+                    IPEndPoint peer = new IPEndPoint(IPAddress.Any, 0);
+                    EndPoint inep = (EndPoint)peer;
+                    try
                     {
-                        Snmp snmp = new Snmp();
-                        // Parse SNMP Version 2 TRAP packet
-                        SnmpV2Packet pkt = new SnmpV2Packet();
-                        pkt.decode(indata, inlen);
-                        logger.Info(string.Format("** SNMP Version 2 TRAP received from {0}:", inep.ToString()));
-                        if ((SnmpSharpNet.PduType)pkt.Pdu.Type != PduType.V2Trap &&
-                            ((SnmpSharpNet.PduType)pkt.Pdu.Type != PduType.Inform))
+                        inlen = socket.ReceiveFrom(indata, ref inep);
+                    }
+                    catch (Exception)
+                    {
+                        //logger.Error(string.Format("Exception {0}", ex.Message));
+                        inlen = -1;
+                    }
+                    if (inlen > 0)
+                    {
+                        // Check protocol version int
+                        int ver = SnmpPacket.GetProtocolVersion(indata, inlen);
+                        if (ver == (int)SnmpVersion.Ver1)
                         {
-                            logger.Info("*** NOT an SNMPv2 trap or inform ****");
+                            // Parse SNMP Version 1 TRAP packet
+                            SnmpV1TrapPacket pkt = new SnmpV1TrapPacket();
+                            pkt.decode(indata, inlen);
+                            logger.Info(string.Format("** SNMP Version 1 TRAP received from {0}:", inep.ToString()));
+                            logger.Info(string.Format("*** Trap generic: {0}", pkt.Pdu.Generic));
+                            logger.Info(string.Format("*** Trap specific: {0}", pkt.Pdu.Specific));
+                            logger.Info(string.Format("*** Agent address: {0}", pkt.Pdu.AgentAddress.ToString()));
+                            logger.Info(string.Format("*** Timestamp: {0}", pkt.Pdu.TimeStamp.ToString()));
+                            logger.Info(string.Format("*** VarBind count: {0}", pkt.Pdu.VbList.Count));
+                            logger.Info("*** VarBind content:");
+                            foreach (Vb v in pkt.Pdu.VbList)
+                            {
+                                logger.Info(string.Format("**** {0} {1}: {2}", v.Oid.ToString(), SnmpConstants.GetTypeName(v.Value.Type), v.Value.ToString()));
+                            }
+                            logger.Info("** End of SNMP Version 1 TRAP data.");
                         }
                         else
                         {
-                            logger.Info(string.Format("*** Community: {0}", pkt.Community.ToString()));
-                            logger.Info(string.Format("*** VarBind count: {0}", pkt.Pdu.VbList.Count));
-                            logger.Info(string.Format("*** VarBind content:"));
-
-                            foreach (Vb v in pkt.Pdu.VbList)
+                            Snmp snmp = new Snmp();
+                            // Parse SNMP Version 2 TRAP packet
+                            SnmpV2Packet pkt = new SnmpV2Packet();
+                            pkt.decode(indata, inlen);
+                            logger.Info(string.Format("** SNMP Version 2 TRAP received from {0}:", inep.ToString()));
+                            if ((SnmpSharpNet.PduType)pkt.Pdu.Type != PduType.V2Trap &&
+                                ((SnmpSharpNet.PduType)pkt.Pdu.Type != PduType.Inform))
                             {
-                                snmp.Id = v.Oid.ToString();
-                                snmp.IP = inep.ToString().Split(':')[0];
-                                snmp.Port = inep.ToString().Split(':')[1];
-                                snmp.Syntax = SnmpConstants.GetTypeName(v.Value.Type);
-                                snmp.Community = pkt.Community.ToString();
-                                snmp.Value = v.Value.ToString();
-                                snmp.type = "trap";
-
-                                logger.Info("Oid : " + v.Oid.ToString());
-                                logger.Info("value : " + v.Value.ToString());
-
-                                if (snmp.Id.Contains(TitanLiveAlarmOid))
-                                {
-                                    string TitanLiveTrapType = snmp.Id.Split('.').Last();
-
-                                    if (TitanLiveTrapType == "9")
-                                    {
-                                        string levelString = v.Value.ToString();
-                                        if (levelString.Equals("major"))
-                                        {
-                                            levelString = "warning";
-                                        }
-                                        else if (levelString.Equals("minor"))
-                                        {
-                                            levelString = "warning";
-                                        }
-
-                                        snmp.LevelString = levelString.First().ToString().ToUpper() + levelString.ToString().Substring(1);
-                                        logger.Info("TitanLevelString : " + snmp.LevelString);
-                                    }
-                                    else if (TitanLiveTrapType == "7")
-                                    {
-                                        if (v.Value.ToString() == "start")
-                                        {
-                                            snmp.TypeValue = "begin";
-                                        }
-                                        else
-                                        {
-                                            snmp.TypeValue = v.Value.ToString();
-                                        }
-                                        //일부러 oid 넣지 않고 oid가 null일 경우를 titan으로 간주함
-                                        //snmp.Oid = v.Oid.ToString();
-                                    }
-                                    else if (TitanLiveTrapType == "4")
-                                    {
-                                        snmp.TranslateValue = v.Value.ToString();
-                                    }
-                                    else if (TitanLiveTrapType == "8")
-                                    {
-                                        snmp.TitanUID = v.Value.ToString();
-                                    }
-                                    else if (TitanLiveTrapType == "11")
-                                    {
-                                        snmp.TitanName = v.Value.ToString();
-                                    }
-                                }
-                                else
-                                {
-                                    string value = Snmp.GetNameFromOid(v.Oid.ToString());
-                                    logger.Info("GetNameFromOid value : " + value);
-
-                                    if (value.LastIndexOf("Level") > 0)
-                                    {
-                                        snmp.LevelString = Snmp.GetLevelString(Convert.ToInt32(v.Value.ToString()), v.Oid.ToString());
-                                        logger.Info("LevelString : " + snmp.LevelString);
-                                    }
-                                    else if (value.LastIndexOf("Type") > 0)
-                                    {
-                                        snmp.TranslateValue = Snmp.GetTranslateValue(value);
-                                        snmp.TypeValue = Enum.GetName(typeof(Snmp.TrapType), Convert.ToInt32(v.Value.ToString()));
-                                        snmp.Oid = v.Oid.ToString();
-                                        snmp.IsTypeTrap = true;
-                                        logger.Info("TypeValue : " + snmp.TypeValue);
-                                    }
-                                    else if (value.LastIndexOf("Channel") > 0)
-                                    {
-                                        snmp.Channel = Convert.ToInt32(v.Value.ToString()) + 1; //0받으면 채널 1로
-                                    }
-                                    else if (value.LastIndexOf("Main") > 0)
-                                    {
-                                        snmp.Main = Enum.GetName(typeof(Snmp.EnumMain), Convert.ToInt32(v.Value.ToString()));
-                                    }
-
-                                    //데이터베이스 테이블을 만들기 위해 등록함(로그는 translate 테이블을 이용하자)
-                                    snmp.RegisterSnmpInfo();
-
-                                    logger.Info(String.Format("[{0}] Trap : {1} {2}: {3}", inep.ToString().Split(':')[0], v.Oid.ToString(), SnmpConstants.GetTypeName(v.Value.Type), v.Value.ToString()));
-                                }
+                                logger.Info("*** NOT an SNMPv2 trap or inform ****");
                             }
-
-                            //CM, DR 기록
-                            if (Snmp.IsEnableTrap(snmp.Oid) || snmp.Id.Contains(TitanLiveAlarmOid))
+                            else
                             {
-                                if (!String.IsNullOrEmpty(snmp.LevelString))
+                                logger.Info(string.Format("*** Community: {0}", pkt.Community.ToString()));
+                                logger.Info(string.Format("*** VarBind count: {0}", pkt.Pdu.VbList.Count));
+                                logger.Info(string.Format("*** VarBind content:"));
+
+                                foreach (Vb v in pkt.Pdu.VbList)
                                 {
-                                    Server s = null;
-                                    foreach (var server in NmsInfo.GetInstance().serverList)
-                                    {
-                                        if (server.Ip == snmp.IP)
-                                        {
-                                            s = server;
-                                            break;
-                                        }
-                                    }
+                                    snmp.Id = v.Oid.ToString();
+                                    snmp.IP = inep.ToString().Split(':')[0];
+                                    snmp.Port = inep.ToString().Split(':')[1];
+                                    snmp.Syntax = SnmpConstants.GetTypeName(v.Value.Type);
+                                    snmp.Community = pkt.Community.ToString();
+                                    snmp.Value = v.Value.ToString();
+                                    snmp.type = "trap";
 
-                                    if (s != null)
+                                    logger.Info("Oid : " + v.Oid.ToString());
+                                    logger.Info("value : " + v.Value.ToString());
+
+                                    if (snmp.Id.Contains(TitanLiveAlarmOid))
                                     {
-                                        if (!snmp.LevelString.Equals("Disabled") && string.Equals(snmp.TypeValue, "begin"))
+                                        string TitanLiveTrapType = snmp.Id.Split('.').Last();
+
+                                        if (TitanLiveTrapType == "9")
                                         {
-                                            if (FindItemDuplicateTrap(NmsInfo.GetInstance().activeLog, s, snmp.Oid).Count == 0 ||
-                                                FindItemDuplicateTitanTrap(NmsInfo.GetInstance().activeLog, s, snmp.TranslateValue).Count == 0)
+                                            string levelString = v.Value.ToString();
+                                            if (levelString.Equals("major"))
                                             {
-                                                if (snmp.IsTypeTrap)
-                                                {
-                                                    s.ErrorCount++;
-                                                }
-                                                s.Message = snmp.TranslateValue;
-
-                                                LogItem log = new LogItem
-                                                {
-                                                    Ip = s.Ip,
-                                                    Level = snmp.LevelString,
-                                                    Name = s.UnitName,
-                                                    Oid = snmp.Oid,
-                                                    IsConnection = true,
-                                                    Value = snmp.TranslateValue,
-                                                    TypeValue = "begin"
-                                                };
-
-                                                LoggingDisplay(log);
-                                                LogItem.LoggingDatabase(snmp);
+                                                levelString = "warning";
                                             }
-                                        }
-                                        else if (!snmp.LevelString.Equals("Disabled") && string.Equals(snmp.TypeValue, "end"))
-                                        {
-                                            List<LogItem> activeItems;
-                                            if (!string.IsNullOrEmpty(snmp.Oid))
+                                            else if (levelString.Equals("minor"))
                                             {
-                                                activeItems = FindItemFromOid(NmsInfo.GetInstance().activeLog, s, snmp.Oid);
+                                                levelString = "warning";
+                                            }
+
+                                            snmp.LevelString = levelString.First().ToString().ToUpper() + levelString.ToString().Substring(1);
+                                            logger.Info("TitanLevelString : " + snmp.LevelString);
+                                        }
+                                        else if (TitanLiveTrapType == "7")
+                                        {
+                                            if (v.Value.ToString() == "start")
+                                            {
+                                                snmp.TypeValue = "begin";
                                             }
                                             else
                                             {
-                                                activeItems = FindItemFromValue(NmsInfo.GetInstance().activeLog, s, snmp.TranslateValue);
+                                                snmp.TypeValue = v.Value.ToString();
                                             }
-                                            if (activeItems.Count > 0)
+                                            //일부러 oid 넣지 않고 oid가 null일 경우를 titan으로 간주함
+                                            //snmp.Oid = v.Oid.ToString();
+                                        }
+                                        else if (TitanLiveTrapType == "4")
+                                        {
+                                            snmp.TranslateValue = v.Value.ToString();
+                                        }
+                                        else if (TitanLiveTrapType == "8")
+                                        {
+                                            snmp.TitanUID = v.Value.ToString();
+                                        }
+                                        else if (TitanLiveTrapType == "11")
+                                        {
+                                            snmp.TitanName = v.Value.ToString();
+                                        }
+                                    }
+                                    else
+                                    {
+                                        string value = Snmp.GetNameFromOid(v.Oid.ToString());
+                                        logger.Info("GetNameFromOid value : " + value);
+
+                                        if (value.LastIndexOf("Level") > 0)
+                                        {
+                                            snmp.LevelString = Snmp.GetLevelString(Convert.ToInt32(v.Value.ToString()), v.Oid.ToString());
+                                            logger.Info("LevelString : " + snmp.LevelString);
+                                        }
+                                        else if (value.LastIndexOf("Type") > 0)
+                                        {
+                                            snmp.TranslateValue = Snmp.GetTranslateValue(value);
+                                            snmp.TypeValue = Enum.GetName(typeof(Snmp.TrapType), Convert.ToInt32(v.Value.ToString()));
+                                            snmp.Oid = v.Oid.ToString();
+                                            snmp.IsTypeTrap = true;
+                                            logger.Info("TypeValue : " + snmp.TypeValue);
+                                        }
+                                        else if (value.LastIndexOf("Channel") > 0)
+                                        {
+                                            snmp.Channel = Convert.ToInt32(v.Value.ToString()) + 1; //0받으면 채널 1로
+                                        }
+                                        else if (value.LastIndexOf("Main") > 0)
+                                        {
+                                            snmp.Main = Enum.GetName(typeof(Snmp.EnumMain), Convert.ToInt32(v.Value.ToString()));
+                                        }
+
+                                        //데이터베이스 테이블을 만들기 위해 등록함(로그는 translate 테이블을 이용하자)
+                                        snmp.RegisterSnmpInfo();
+
+                                        logger.Info(String.Format("[{0}] Trap : {1} {2}: {3}", inep.ToString().Split(':')[0], v.Oid.ToString(), SnmpConstants.GetTypeName(v.Value.Type), v.Value.ToString()));
+                                    }
+                                }
+
+                                //CM, DR 기록
+                                if (Snmp.IsEnableTrap(snmp.Oid) || snmp.Id.Contains(TitanLiveAlarmOid))
+                                {
+                                    if (!String.IsNullOrEmpty(snmp.LevelString))
+                                    {
+                                        Server s = null;
+                                        foreach (var server in NmsInfo.GetInstance().serverList)
+                                        {
+                                            if (server.Ip == snmp.IP)
                                             {
-                                                foreach (var item in activeItems)
+                                                s = server;
+                                                break;
+                                            }
+                                        }
+
+                                        if (s != null)
+                                        {
+                                            if (!snmp.LevelString.Equals("Disabled") && string.Equals(snmp.TypeValue, "begin"))
+                                            {
+                                                if (FindItemDuplicateTrap(NmsInfo.GetInstance().activeLog, s, snmp.Oid).Count == 0 ||
+                                                    FindItemDuplicateTitanTrap(NmsInfo.GetInstance().activeLog, s, snmp.TranslateValue).Count == 0)
                                                 {
-                                                    if (s.ErrorCount > 0 && snmp.IsTypeTrap)
+                                                    if (snmp.IsTypeTrap)
                                                     {
-                                                        s.ErrorCount--;
+                                                        s.ErrorCount++;
                                                     }
-                                                    LogItem restoreItem = FindCurrentStatusItem(NmsInfo.GetInstance().activeLog, s.Ip);
-                                                    if (restoreItem != null)
+                                                    s.Message = snmp.TranslateValue;
+
+                                                    LogItem log = new LogItem
                                                     {
-                                                        s.Status = restoreItem.Level;
-                                                        s.Message = restoreItem.Value;
-                                                        if (s.ErrorCount == 0)
+                                                        Ip = s.Ip,
+                                                        Level = snmp.LevelString,
+                                                        Name = s.UnitName,
+                                                        Oid = snmp.Oid,
+                                                        IsConnection = true,
+                                                        Value = snmp.TranslateValue,
+                                                        TypeValue = "begin"
+                                                    };
+
+                                                    LoggingDisplay(log);
+                                                    LogItem.LoggingDatabase(snmp);
+                                                }
+                                            }
+                                            else if (!snmp.LevelString.Equals("Disabled") && string.Equals(snmp.TypeValue, "end"))
+                                            {
+                                                List<LogItem> activeItems;
+                                                if (!string.IsNullOrEmpty(snmp.Oid))
+                                                {
+                                                    activeItems = FindItemFromOid(NmsInfo.GetInstance().activeLog, s, snmp.Oid);
+                                                }
+                                                else
+                                                {
+                                                    activeItems = FindItemFromValue(NmsInfo.GetInstance().activeLog, s, snmp.TranslateValue);
+                                                }
+                                                if (activeItems.Count > 0)
+                                                {
+                                                    foreach (var item in activeItems)
+                                                    {
+                                                        if (s.ErrorCount > 0 && snmp.IsTypeTrap)
+                                                        {
+                                                            s.ErrorCount--;
+                                                        }
+                                                        LogItem restoreItem = FindCurrentStatusItem(NmsInfo.GetInstance().activeLog, s.Ip);
+                                                        if (restoreItem != null)
+                                                        {
+                                                            s.Status = restoreItem.Level;
+                                                            s.Message = restoreItem.Value;
+                                                            if (s.ErrorCount == 0)
+                                                            {
+                                                                s.Status = Server.EnumStatus.Normal.ToString();
+                                                            }
+                                                        }
+                                                        else
                                                         {
                                                             s.Status = Server.EnumStatus.Normal.ToString();
                                                         }
                                                     }
-                                                    else
-                                                    {
-                                                        s.Status = Server.EnumStatus.Normal.ToString();
-                                                    }
+
+                                                    LoggingDisplay(activeItems);
+                                                    LogItem.LoggingDatabase(snmp);
                                                 }
-
-                                                LoggingDisplay(activeItems);
-                                                LogItem.LoggingDatabase(snmp);
                                             }
-                                        }
 
-                                        if (!string.Equals(snmp.TypeValue, "log"))
-                                        {
-                                            if (s.ErrorCount > 0)
+                                            if (!string.Equals(snmp.TypeValue, "log"))
                                             {
-                                                s.Status = Server.CompareState(s.Status, snmp.LevelString);
-                                            }
-                                            else
-                                            {
-                                                s.Status = Server.EnumStatus.Normal.ToString();
+                                                if (s.ErrorCount > 0)
+                                                {
+                                                    s.Status = Server.CompareState(s.Status, snmp.LevelString);
+                                                }
+                                                else
+                                                {
+                                                    s.Status = Server.EnumStatus.Normal.ToString();
+                                                }
                                             }
                                         }
                                     }
                                 }
+                                logger.Info("** End of SNMP Version 2 TRAP data.");
                             }
-                            logger.Info("** End of SNMP Version 2 TRAP data.");
+                        }
+                    }
+                    else
+                    {
+                        if (inlen == 0)
+                        {
+                            logger.Info("Zero length packet received.");
                         }
                     }
                 }
-                else
-                {
-                    if (inlen == 0)
-                    {
-                        logger.Info("Zero length packet received.");
-                    }
-                }
+            }
+            catch (Exception e)
+            {
+                logger.Error(e.ToString());
             }
 
             logger.Info(" *** TrapListener exit ***");

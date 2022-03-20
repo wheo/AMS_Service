@@ -264,7 +264,7 @@ AND T.is_visible = 'Y'");
                 cmd.Parameters.AddWithValue("@syntax", this.Syntax);
                 cmd.Parameters.AddWithValue("@community", this.Community);
                 cmd.Parameters.AddWithValue("@type", this.type);
-                cmd.Prepare();
+                //cmd.Prepare();
                 cmd.ExecuteNonQuery();
             }
         }
