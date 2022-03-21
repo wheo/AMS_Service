@@ -359,7 +359,7 @@ namespace AMS_Service
                 conn.Open();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
                 cmd.Parameters.AddWithValue("@status", "idle");
-                cmd.Prepare();
+                //cmd.Prepare();
                 ret = cmd.ExecuteNonQuery();
             }
             return ret;
@@ -403,7 +403,7 @@ namespace AMS_Service
             {
                 conn.Open();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
-                cmd.Prepare();
+                //cmd.Prepare();
                 MySqlDataAdapter adpt = new MySqlDataAdapter(query, conn);
                 adpt.Fill(dt);
             }
@@ -454,7 +454,7 @@ namespace AMS_Service
                 cmd.Parameters.AddWithValue("@name", this.UnitName);
                 cmd.Parameters.AddWithValue("@ip", this.Ip);
                 cmd.Parameters.AddWithValue("@gid", this.Gid);
-                cmd.Prepare();
+                //cmd.Prepare();
                 cmd.ExecuteNonQuery();
             }
             return id;
@@ -472,7 +472,7 @@ namespace AMS_Service
                 cmd.Parameters.AddWithValue("@ip", this.Ip);
                 cmd.Parameters.AddWithValue("@name", this.UnitName);
                 cmd.Parameters.AddWithValue("@gid", this.Gid);
-                cmd.Prepare();
+                //cmd.Prepare();
                 ret = cmd.ExecuteNonQuery();
             }
             return ret;
@@ -487,7 +487,7 @@ namespace AMS_Service
                 conn.Open();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
                 cmd.Parameters.AddWithValue("@id", server.Id);
-                cmd.Prepare();
+                //cmd.Prepare();
                 ret = cmd.ExecuteNonQuery();
             }
             return ret;
@@ -508,7 +508,7 @@ namespace AMS_Service
                 cmd.Parameters.AddWithValue("@type", this.ModelName);
                 cmd.Parameters.AddWithValue("@error_count", this.ErrorCount);
                 cmd.Parameters.AddWithValue("@connection_error_count", this.ConnectionErrorCount);
-                cmd.Prepare();
+                //cmd.Prepare();
                 ret = cmd.ExecuteNonQuery();
                 //logger.Info(string.Format($"({this.Ip}) database status ({this.Status}) changed"));
             }
@@ -525,7 +525,7 @@ namespace AMS_Service
                 MySqlCommand cmd = new MySqlCommand(query, conn);
                 cmd.Parameters.AddWithValue("@id", server.Id);
                 cmd.Parameters.AddWithValue("@version", server.Version);
-                cmd.Prepare();
+                //cmd.Prepare();
                 ret = cmd.ExecuteNonQuery();
             }
             return ret;
@@ -567,7 +567,7 @@ namespace AMS_Service
                     string query = String.Format($"DELETE FROM server");
                     MySqlCommand cmd = conn.CreateCommand();
                     cmd.CommandText = query;
-                    cmd.Prepare();
+                    //cmd.Prepare();
                     ret = cmd.ExecuteNonQuery();
 
                     query = "INSERT INTO server (id, ip, name, gid, location) VALUES (@id, @ip, @name, @gid, @location)";
@@ -581,7 +581,7 @@ namespace AMS_Service
                             cmd.Parameters.AddWithValue("@ip", s.Ip);
                             cmd.Parameters.AddWithValue("@gid", s.Gid);
                             cmd.Parameters.AddWithValue("@location", s.Location);
-                            cmd.Prepare();
+                            //cmd.Prepare();
                             cmd.ExecuteNonQuery();
                             cmd.Parameters.Clear();
                         }
