@@ -116,7 +116,7 @@ namespace AMS_Service
             NmsInfo.GetInstance().serverList = Server.GetServerList();
             foreach (Server t in NmsInfo.GetInstance().serverList)
             {
-                logger.Info(string.Format($"list : {t.Id}, {t.UnitName}, {t.ModelName}, {t.Status}"));
+                logger.Info(string.Format($"최초 실행 : {t.Id}, {t.UnitName}, {t.ModelName}, {t.Status}"));
             }
 
             while (true)
@@ -128,7 +128,37 @@ namespace AMS_Service
                     {
                         break;
                     }
+
                     List<Server> currentServerList = Server.GetServerList();
+
+                    /*
+                    foreach (Server s in currentServerList)
+                    {
+                        IEnumerable<Server> results = NmsInfo.GetInstance().serverList;
+                        Server c = (Server)results.Where(x => x.Id == s.Id).FirstOrDefault();
+                        if (c == null)
+                        {
+                            NmsInfo.GetInstance().serverList.Remove(s);
+                            logger.Info(string.Format($"server is removed({s.Ip}({s.UnitName}, count : {NmsInfo.GetInstance().serverList.Count})"));
+                        }
+                    }
+                    */
+                    List<Server> temp = new List<Server>();
+
+                    foreach (Server s in NmsInfo.GetInstance().serverList)
+                    {
+                        Server c = (Server)currentServerList.Where(x => x.Id == s.Id).FirstOrDefault();
+                        if (c == null)
+                        {
+                            temp.Add(s);
+                        }
+                    }
+                    foreach (Server s in temp)
+                    {
+                        NmsInfo.GetInstance().serverList.Remove(s);
+                        logger.Info(string.Format($"server is removed({s.Ip}, {s.Id} ({s.UnitName}, count : {NmsInfo.GetInstance().serverList.Count})"));
+                    }
+
                     foreach (Server cs in currentServerList)
                     {
                         IEnumerable<Server> results = NmsInfo.GetInstance().serverList;
@@ -142,18 +172,7 @@ namespace AMS_Service
                         else
                         {
                             NmsInfo.GetInstance().serverList.Add(cs);
-                            logger.Info(string.Format($"new server added({cs.Ip}({cs.UnitName})"));
-                        }
-                    }
-
-                    foreach (Server s in currentServerList)
-                    {
-                        IEnumerable<Server> results = NmsInfo.GetInstance().serverList;
-                        Server c = (Server)results.Where(x => x.Id == s.Id).FirstOrDefault();
-                        if (c == null)
-                        {
-                            NmsInfo.GetInstance().serverList.Remove(s);
-                            logger.Info(string.Format($"server is removed({s.Ip}({s.UnitName})"));
+                            logger.Info(string.Format($"new server added({cs.Ip}({cs.UnitName}), {s.Id}, count: {NmsInfo.GetInstance().serverList.Count})"));
                         }
                     }
 
@@ -402,6 +421,7 @@ namespace AMS_Service
                                         else if (TitanLiveTrapType == "4")
                                         {
                                             snmp.TranslateValue = v.Value.ToString();
+                                            snmp.IsTypeTrap = true;
                                         }
                                         else if (TitanLiveTrapType == "8")
                                         {

@@ -341,7 +341,6 @@ namespace AMS_Service
                 PropertyChanged(this, e);
                 if (e.PropertyName.Equals("Status") ||
                     e.PropertyName.Equals("Name") ||
-                        e.PropertyName.Equals("Location") ||
                         e.PropertyName.Equals("ErrorCount") ||
                         e.PropertyName.Equals("Uptime"))
                 {
@@ -496,13 +495,14 @@ namespace AMS_Service
         public int UpdateServerStatus()
         {
             int ret = 0;
-            string query = "UPDATE server set status = @status, type = @type, name = @name, location = @location, error_count = @error_count, connection_error_count = @connection_error_count WHERE id = @id";
+            string query = "UPDATE server set status = @status, uptime = @uptime, type = @type, name = @name, location = @location, error_count = @error_count, connection_error_count = @connection_error_count WHERE id = @id";
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
             {
                 conn.Open();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
                 cmd.Parameters.AddWithValue("@id", this.Id);
                 cmd.Parameters.AddWithValue("@status", this.Status);
+                cmd.Parameters.AddWithValue("@uptime", this.Uptime);
                 cmd.Parameters.AddWithValue("@name", this.UnitName);
                 cmd.Parameters.AddWithValue("@location", this.Location);
                 cmd.Parameters.AddWithValue("@type", this.ModelName);
@@ -629,7 +629,7 @@ ORDER BY S.location ASC";
                 Location = row.Field<int>("location"),
                 ErrorCount = row.Field<int>("error_count"),
                 ConnectionErrorCount = row.Field<int>("connection_error_count"),
-                Color = row.Field<string>("color"),
+                //Color = row.Field<string>("color"),
                 Status = row.Field<string>("status")
             }).ToList();
         }
