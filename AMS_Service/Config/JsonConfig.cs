@@ -14,6 +14,8 @@ namespace AMS_Service.Config
         public String pw { get; set; }
         public String DatabaseName { get; set; }
 
+        public string ChannelAIHost { get; set; }
+
         public String configFileName = "config.json";
 
         public static JsonConfig instance;

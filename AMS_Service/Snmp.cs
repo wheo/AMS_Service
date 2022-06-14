@@ -14,8 +14,9 @@ namespace AMS_Service
     {
         private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
-        public string Id { get; set; }
+        public string event_id { get; set; }
 
+        public string Id { get; set; }
         public string type { get; set; }
         public string IP { get; set; }
         public string Syntax { get; set; }
@@ -32,6 +33,8 @@ namespace AMS_Service
         public int Index { get; set; }
         public string Main { get; set; }
         public string TranslateValue { get; set; }
+
+        public string Api_msg { get; set; }
         public bool IsTypeTrap { get; set; } = false;
         public string TrapString { get; set; }
         public string TitanUID { get; set; }
@@ -206,10 +209,11 @@ AND T.is_visible = 'Y'");
             return value;
         }
 
-        public static string GetTranslateValue(string name)
+        public static void GetTranslateValue(string name, out string translate, out string api_msg)
         {
-            string value = null;
-            string query = String.Format($"SELECT translate FROM translate WHERE name = '{name}'");
+            translate = "";
+            api_msg = "";
+            string query = String.Format($"SELECT translate, api_msg FROM translate WHERE name = '{name}'");
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
             {
                 conn.Open();
@@ -217,15 +221,19 @@ AND T.is_visible = 'Y'");
                 MySqlDataReader rdr = cmd.ExecuteReader();
                 while (rdr.Read())
                 {
-                    value = rdr["translate"].ToString();
+                    translate = rdr["translate"].ToString();
+                    api_msg = rdr["api_msg"].ToString();
                 }
                 rdr.Close();
             }
-            if (value == null)
+            if (translate == null)
             {
-                value = "";
+                translate = "";
             }
-            return value;
+            if (api_msg == null)
+            {
+                api_msg = "";
+            }
         }
 
         public Server GetServerInfo()

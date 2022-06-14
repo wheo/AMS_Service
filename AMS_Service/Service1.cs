@@ -1,9 +1,10 @@
 ﻿using AMS_Service.Config;
+using AMS_Service.ExternalApi;
 using AMS_Service.Service;
 using AMS_Service.Singleton;
 using log4net;
 using Newtonsoft.Json;
-
+using Newtonsoft.Json.Linq;
 using SnmpSharpNet;
 using System;
 using System.Collections.Generic;
@@ -62,6 +63,8 @@ namespace AMS_Service
                     jsonConfig.pw = "tnmtech";
                     jsonConfig.DatabaseName = "TNM_NMS";
 
+                    jsonConfig.ChannelAIHost = "http://61.78.151.69:8081";
+
                     jsonString = JsonConvert.SerializeObject(jsonConfig);
                     File.WriteAllText(jsonConfig.configFileName, jsonString);
                 }
@@ -71,6 +74,8 @@ namespace AMS_Service
 
                 DatabaseManager.GetInstance().SetConnectionString(jsonConfig.ip, jsonConfig.port, jsonConfig.id, jsonConfig.pw, jsonConfig.DatabaseName);
 
+                ChannelAI.Host = jsonConfig.ChannelAIHost;
+                logger.Info("ChannelAI.Host : " + ChannelAI.Host);
                 _SnmpPort = Snmp.GetSnmpPort();
                 _PollingSec = Snmp.GetPollingSec();
 
@@ -112,7 +117,8 @@ namespace AMS_Service
             logger.Info("SnmpGetService is created");
 
             bool signal = false;
-            //최초 값
+
+            //AMS 서비스 실행 후 처음으로 받아오는 값
             NmsInfo.GetInstance().serverList = Server.GetServerList();
             foreach (Server t in NmsInfo.GetInstance().serverList)
             {
@@ -129,20 +135,10 @@ namespace AMS_Service
                         break;
                     }
 
+                    //현재 서버 상태를 받아옴
                     List<Server> currentServerList = Server.GetServerList();
 
-                    /*
-                    foreach (Server s in currentServerList)
-                    {
-                        IEnumerable<Server> results = NmsInfo.GetInstance().serverList;
-                        Server c = (Server)results.Where(x => x.Id == s.Id).FirstOrDefault();
-                        if (c == null)
-                        {
-                            NmsInfo.GetInstance().serverList.Remove(s);
-                            logger.Info(string.Format($"server is removed({s.Ip}({s.UnitName}, count : {NmsInfo.GetInstance().serverList.Count})"));
-                        }
-                    }
-                    */
+                    // api 서버로부터 가져온 장비리스트 비교 후 삭제된 서버를 클래스에 반영
                     List<Server> temp = new List<Server>();
 
                     foreach (Server s in NmsInfo.GetInstance().serverList)
@@ -166,15 +162,18 @@ namespace AMS_Service
                         Server s = (Server)NmsInfo.GetInstance().serverList.Where(x => x.Id == cs.Id).FirstOrDefault();
                         if (s != null)
                         {
-                            //logger.Info("최신상태 : " + cs.UnitName + ", " + cs.Status + " | 현재상태 : " + s.UnitName + ", " + s.Status);
+                            //logger.Info("최신상태 (" + cs.Id + ") : " + cs.UnitName + ", " + cs.Status + " | 현재상태 (" + s.Id + ") : " + s.UnitName + ", " + s.Status);\
+                            logger.Info(string.Format($"최신상태 ({  cs.Id }) : { cs.UnitName }, { cs.Status }, reboot : {cs.Reboot} | 현재상태 ({ s.Id }) : { s.UnitName }, {s.Status}, reboot : {cs.Reboot}"));
                             s.PutInfo(cs);
                         }
                         else
                         {
                             NmsInfo.GetInstance().serverList.Add(cs);
-                            logger.Info(string.Format($"new server added({cs.Ip}({cs.UnitName}), {s.Id}, count: {NmsInfo.GetInstance().serverList.Count})"));
+                            logger.Info(string.Format($"new server added({cs.Ip}({cs.UnitName}), {cs.Id}, / {NmsInfo.GetInstance().serverList.Count})"));
                         }
                     }
+
+                    JArray j = new JArray();
 
                     foreach (Server server in NmsInfo.GetInstance().serverList)
                     {
@@ -183,10 +182,34 @@ namespace AMS_Service
 
                         logger.Info(string.Format($"({server.Ip}), {server.ModelName}, {server.IsConnect.ToString()}, {server.Status}"));
 
+                        JObject o = new JObject();
+                        o.Add("device_id", server.Id);
+                        o.Add("status", server.Status);
+                        //10d 7h 51m 0s 520ms to second
+                        string[] uptime;
+                        if (!string.IsNullOrEmpty(server.Uptime))
+                        {
+                            uptime = server.Uptime.Split(' ');
+                            int day = Convert.ToInt32(uptime[0].Substring(0, uptime[0].Length - 1));
+                            int hour = Convert.ToInt32(uptime[1].Substring(0, uptime[1].Length - 1));
+                            int min = Convert.ToInt32(uptime[2].Substring(0, uptime[2].Length - 1));
+                            int sec = Convert.ToInt32(uptime[3].Substring(0, uptime[3].Length - 1));
+                            Int64 uptime_sec = day * 86400 + hour * 3600 + min * 60 + sec;
+                            o.Add("sys_uptime", uptime_sec);
+                        }
+                        else
+                        {
+                            o.Add("sys_uptime", 0);
+                        }
+
+                        j.Add(o);
+
                         if (SnmpService.Get(server))
                         {
                             if (!string.IsNullOrEmpty(server.ModelName))
                             {
+                                #region deprecated
+
                                 /*
                                 if ("CM5000".Equals(server.ModelName))
                                 {
@@ -197,6 +220,9 @@ namespace AMS_Service
                                     serviceOID = SnmpService._DR5000ModelName_oid;
                                 }
                                 */
+
+                                #endregion deprecated
+
                                 // 요청 후 응답이 왔을 때
                                 if (server.IsConnect != Server.EnumIsConnect.Connect)
                                 {
@@ -213,7 +239,8 @@ namespace AMS_Service
                                             TypeValue = "end",
                                             TranslateValue = "Failed to connection"
                                         };
-                                        LogItem.LoggingDatabase(snmp);
+                                        snmp.event_id = LogItem.LoggingDatabase(snmp);
+
                                         logger.Info(string.Format($"{snmp.IP}, ({snmp.TypeValue}) {snmp.TranslateValue}"));
                                     }
                                     server.ConnectionErrorCount = 0;
@@ -222,14 +249,19 @@ namespace AMS_Service
                                     LogItem curruntStatusItem = FindCurrentStatusItem(NmsInfo.GetInstance().activeLog, server.Ip);
                                     if (curruntStatusItem != null)
                                     {
-                                        server.Status = curruntStatusItem.Level;
+                                        logger.Info(string.Format($"{server.Ip}, FindCurrentStatusItem : {curruntStatusItem.Level}"));
+                                        server.UpdateState = curruntStatusItem.Level;
                                         server.Message = curruntStatusItem.Value;
                                     }
                                     else
                                     {
-                                        server.Status = Server.EnumStatus.Normal.ToString();
+                                        server.UpdateState = Server.EnumStatus.Normal.ToString();
                                     }
                                 }
+                            }
+                            else
+                            {
+                                //ModelName 없을 때
                             }
                         }
                         else
@@ -273,6 +305,11 @@ namespace AMS_Service
                             }
                         }
                     }
+                    // 채널 AI status
+                    /*
+                    string response = ExternalApi.ChannelAI.DeviceState(j);
+                    logger.Info("response : " + response);
+                    */
                 }
                 catch (Exception ex)
                 {
@@ -444,7 +481,11 @@ namespace AMS_Service
                                         }
                                         else if (value.LastIndexOf("Type") > 0)
                                         {
-                                            snmp.TranslateValue = Snmp.GetTranslateValue(value);
+                                            string TranslateValue = "";
+                                            string Api_msg = "";
+                                            Snmp.GetTranslateValue(value, out TranslateValue, out Api_msg);
+                                            snmp.TranslateValue = TranslateValue;
+                                            snmp.Api_msg = Api_msg;
                                             snmp.TypeValue = Enum.GetName(typeof(Snmp.TrapType), Convert.ToInt32(v.Value.ToString()));
                                             snmp.Oid = v.Oid.ToString();
                                             snmp.IsTypeTrap = true;
@@ -506,7 +547,10 @@ namespace AMS_Service
                                                     };
 
                                                     LoggingDisplay(log);
-                                                    LogItem.LoggingDatabase(snmp);
+                                                    snmp.event_id = LogItem.LoggingDatabase(snmp);
+                                                    /*
+                                                    ExternalApi.ChannelAI.CombinePostEvent(snmp, s);
+                                                    */
                                                 }
                                             }
                                             else if (!snmp.LevelString.Equals("Disabled") && string.Equals(snmp.TypeValue, "end"))
@@ -531,16 +575,16 @@ namespace AMS_Service
                                                         LogItem restoreItem = FindCurrentStatusItem(NmsInfo.GetInstance().activeLog, s.Ip);
                                                         if (restoreItem != null)
                                                         {
-                                                            s.Status = restoreItem.Level;
+                                                            s.UpdateState = restoreItem.Level;
                                                             s.Message = restoreItem.Value;
                                                             if (s.ErrorCount == 0)
                                                             {
-                                                                s.Status = Server.EnumStatus.Normal.ToString();
+                                                                s.UpdateState = Server.EnumStatus.Normal.ToString();
                                                             }
                                                         }
                                                         else
                                                         {
-                                                            s.Status = Server.EnumStatus.Normal.ToString();
+                                                            s.UpdateState = Server.EnumStatus.Normal.ToString();
                                                         }
                                                     }
 
@@ -553,11 +597,11 @@ namespace AMS_Service
                                             {
                                                 if (s.ErrorCount > 0)
                                                 {
-                                                    s.Status = Server.CompareState(s.Status, snmp.LevelString);
+                                                    s.UpdateState = Server.CompareState(s.Status, snmp.LevelString);
                                                 }
                                                 else
                                                 {
-                                                    s.Status = Server.EnumStatus.Normal.ToString();
+                                                    s.UpdateState = Server.EnumStatus.Normal.ToString();
                                                 }
                                             }
                                         }

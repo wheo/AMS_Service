@@ -46,28 +46,36 @@ namespace AMS_Service
                 if (_Uptime != value)
                 {
                     _Uptime = value;
+                    UptimeFormat = value;
                     OnPropertyChanged(new PropertyChangedEventArgs("Uptime"));
+                }
+            }
+        }
+
+        [JsonIgnore]
+        private string _UptimeFormat;
+
+        [JsonIgnore]
+        public string UptimeFormat
+        {
+            get { return _UptimeFormat; }
+            set
+            {
+                if (!string.IsNullOrEmpty(value))
+                {
+                    string[] uptime;
+                    uptime = value.Split(' ');
+                    int day = Convert.ToInt32(uptime[0].Substring(0, uptime[0].Length - 1));
+                    int hour = Convert.ToInt32(uptime[1].Substring(0, uptime[1].Length - 1));
+                    int min = Convert.ToInt32(uptime[2].Substring(0, uptime[2].Length - 1));
+                    int sec = Convert.ToInt32(uptime[3].Substring(0, uptime[3].Length - 1));
+                    _UptimeFormat = String.Format($"{day}일 {hour}시 {min}분 {sec}초");
                 }
             }
         }
 
         public string Id { get; set; }
         public string Ip { get; set; }
-
-        [JsonIgnore]
-        public int _Location { get; set; }
-
-        public int Location
-        {
-            get { return _Location; }
-            set
-            {
-                if (_Location != value)
-                {
-                    _Location = value;
-                }
-            }
-        }
 
         [JsonIgnore]
         private string _UnitName { get; set; }
@@ -202,6 +210,17 @@ namespace AMS_Service
         public string Message { get; set; }
 
         [JsonIgnore]
+        public string UpdateState
+        {
+            set
+            {
+                this.Status = value;
+                OnPropertyChanged(new PropertyChangedEventArgs("Status"));
+                logger.Info(string.Format($"{this.Ip} => ({Status}) api updated"));
+            }
+        }
+
+        [JsonIgnore]
         public string Status
         {
             get { return _Status; }
@@ -239,11 +258,6 @@ namespace AMS_Service
                         }
 
                         _Status = value;
-
-                        if (!string.IsNullOrEmpty(_Status))
-                        {
-                            OnPropertyChanged(new PropertyChangedEventArgs("Status"));
-                        }
                     }
                 }
                 else
@@ -273,11 +287,11 @@ namespace AMS_Service
             {
                 if (value == EnumIsConnect.Disconnect)
                 {
-                    this.Status = Server.EnumStatus.Critical.ToString();
+                    this.UpdateState = Server.EnumStatus.Critical.ToString();
                 }
                 else if (value == EnumIsConnect.Connect && this.ErrorCount == 0)
                 {
-                    this.Status = Server.EnumStatus.Normal.ToString();
+                    this.UpdateState = Server.EnumStatus.Normal.ToString();
                 }
                 _IsConnect = value;
                 //logger.Info(string.Format($"[{Ip}] connect status is {c.ToString()}"));
@@ -294,6 +308,12 @@ namespace AMS_Service
         [JsonIgnore]
         public int ConnectionErrorCount { get; set; }
 
+        [JsonIgnore]
+        public string IsMute { get; set; }
+
+        [JsonIgnore]
+        public string Reboot { get; set; }
+
         public Server()
         {
             _Status = "";
@@ -304,7 +324,7 @@ namespace AMS_Service
         public void Clear()
         {
             this.Ip = null;
-            this.Location = 0;
+            //this.Location = 0;
             this.Color = null;
             this.Gid = null;
             this.GroupName = null;
@@ -326,8 +346,8 @@ namespace AMS_Service
             this.Ip = s.Ip;
             this.UnitName = s.UnitName;
             this.Status = s.Status;
-            this.Color = s.Color;
-            this.Location = s.Location;
+            //this.Color = s.Color;
+            //this.Location = s.Location;
             this.Uptime = s.Uptime;
             this.Version = s.Version;
         }
@@ -340,7 +360,6 @@ namespace AMS_Service
             {
                 PropertyChanged(this, e);
                 if (e.PropertyName.Equals("Status") ||
-                    e.PropertyName.Equals("Name") ||
                         e.PropertyName.Equals("ErrorCount") ||
                         e.PropertyName.Equals("Uptime"))
                 {
@@ -495,16 +514,20 @@ namespace AMS_Service
         public int UpdateServerStatus()
         {
             int ret = 0;
-            string query = "UPDATE server set status = @status, uptime = @uptime, type = @type, name = @name, location = @location, error_count = @error_count, connection_error_count = @connection_error_count WHERE id = @id";
+            string query = "UPDATE server set status = @status, uptime = @uptime, type = @type, name = @name, error_count = @error_count, connection_error_count = @connection_error_count, uptime_format = @uptime_format WHERE id = @id";
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
             {
+                if (string.IsNullOrEmpty(this.ModelName))
+                    this.ModelName = "CM5000";
+
                 conn.Open();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
                 cmd.Parameters.AddWithValue("@id", this.Id);
                 cmd.Parameters.AddWithValue("@status", this.Status);
                 cmd.Parameters.AddWithValue("@uptime", this.Uptime);
+                cmd.Parameters.AddWithValue("@uptime_format", this.UptimeFormat);
                 cmd.Parameters.AddWithValue("@name", this.UnitName);
-                cmd.Parameters.AddWithValue("@location", this.Location);
+                //cmd.Parameters.AddWithValue("@location", this.Location);
                 cmd.Parameters.AddWithValue("@type", this.ModelName);
                 cmd.Parameters.AddWithValue("@error_count", this.ErrorCount);
                 cmd.Parameters.AddWithValue("@connection_error_count", this.ConnectionErrorCount);
@@ -570,7 +593,7 @@ namespace AMS_Service
                     //cmd.Prepare();
                     ret = cmd.ExecuteNonQuery();
 
-                    query = "INSERT INTO server (id, ip, name, gid, location) VALUES (@id, @ip, @name, @gid, @location)";
+                    query = "INSERT INTO server (id, ip, name, gid) VALUES (@id, @ip, @name, @gid)";
                     cmd.CommandText = query;
                     foreach (Server s in servers)
                     {
@@ -580,7 +603,7 @@ namespace AMS_Service
                             cmd.Parameters.AddWithValue("@name", s.UnitName);
                             cmd.Parameters.AddWithValue("@ip", s.Ip);
                             cmd.Parameters.AddWithValue("@gid", s.Gid);
-                            cmd.Parameters.AddWithValue("@location", s.Location);
+                            //cmd.Parameters.AddWithValue("@location", s.Location);
                             //cmd.Prepare();
                             cmd.ExecuteNonQuery();
                             cmd.Parameters.Clear();
@@ -602,7 +625,7 @@ namespace AMS_Service
         public static List<Server> GetServerList()
         {
             DataTable dt = new DataTable();
-            string query = @"SELECT S.*
+            string query = @"SELECT S.id, S.gid, S.name, S.ip, S.type, S.error_count, S.connection_error_count, IFNULL(S.uptime,'') as uptime, S.status, S.ismute, S.reboot
 , IF(S.status = 'Critical', 'Red', IF(S.status = 'Warning', '#FF8000', IF(S.status = 'Information', 'Blue', 'Green'))) AS color
 , G.name as grp_name
 , A.path FROM server S
@@ -626,11 +649,14 @@ ORDER BY S.location ASC";
                 Ip = row.Field<string>("ip"),
                 GroupName = row.Field<string>("grp_name"),
                 ModelName = row.Field<string>("type"),
-                Location = row.Field<int>("location"),
+                //Location = row.Field<int>("location"),
                 ErrorCount = row.Field<int>("error_count"),
                 ConnectionErrorCount = row.Field<int>("connection_error_count"),
                 //Color = row.Field<string>("color"),
-                Status = row.Field<string>("status")
+                Uptime = row.Field<string>("uptime"),
+                Status = row.Field<string>("status"),
+                IsMute = row.Field<string>("ismute"),
+                Reboot = row.Field<string>("reboot")
             }).ToList();
         }
     }

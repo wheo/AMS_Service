@@ -171,19 +171,28 @@ ORDER BY L.start_at {3} {4}", _LocalIp, is_active, date_query, order_query, limi
             }).ToList();
         }
 
-        public static int LoggingDatabase(Snmp trap)
+        public static string getGUID()
+        {
+            Guid g = Guid.NewGuid();
+            return g.ToString();
+        }
+
+        public static string LoggingDatabase(Snmp trap)
         {
             int ret = 0;
+            string id = null;
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
             {
                 if (trap.TypeValue == "begin")
                 {
-                    string query = string.Format(@"INSERT INTO log (client_ip, ip, port, community, level, oid, value, snmp_type_value)
-VALUES (@client_ip, @ip, @port, @community, @level, @oid, @value, @snmp_type_value) "); //ON DUPLICATE KEY UPDATE client_ip = @client_ip
+                    string query = string.Format(@"INSERT INTO log (client_ip, ip, port, id, community, level, oid, value, snmp_type_value)
+VALUES (@client_ip, @ip, @port, @id, @community, @level, @oid, @value, @snmp_type_value) "); //ON DUPLICATE KEY UPDATE client_ip = @client_ip
+                    id = getGUID();
                     conn.Open();
                     MySqlCommand cmd = new MySqlCommand(query, conn);
                     cmd.Parameters.AddWithValue("@client_ip", trap._LocalIP);
                     cmd.Parameters.AddWithValue("@ip", trap.IP);
+                    cmd.Parameters.AddWithValue("id", id);
                     cmd.Parameters.AddWithValue("@port", trap.Port);
                     cmd.Parameters.AddWithValue("@community", trap.Community);
                     cmd.Parameters.AddWithValue("@level", trap.LevelString);
@@ -224,7 +233,7 @@ VALUES (@client_ip, @ip, @port, @community, @level, @oid, @value, @snmp_type_val
                 }
             }
 
-            return ret;
+            return id;
         }
 
         public static int ChangeConfirmStatus(int idx)

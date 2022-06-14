@@ -99,6 +99,7 @@
   <ItemGroup>
     <Compile Include="Config\JsonConfig.cs" />
     <Compile Include="DatabaseManager.cs" />
+    <Compile Include="ExternalApi\ChannelAI.cs" />
     <Compile Include="LogItem.cs" />
     <Compile Include="ProjectInstaller.cs">
       <SubType>Component</SubType>
@@ -118,6 +119,7 @@
     <Compile Include="Service\SnmpService.cs" />
     <Compile Include="Singleton\NmsInfo.cs" />
     <Compile Include="Snmp.cs" />
+    <Compile Include="Utils\Http.cs" />
     <Compile Include="Utils\Util.cs" />
   </ItemGroup>
   <ItemGroup>
