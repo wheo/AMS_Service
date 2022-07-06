@@ -16,14 +16,6 @@ namespace AMS_Service
     {
         private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
-        public Server ShallowCopy()
-        {
-            return (Server)this.MemberwiseClone();
-        }
-
-        [JsonIgnore]
-        public Server Undo { get; set; }
-
         [JsonIgnore]
         private string _Status;
 
@@ -43,7 +35,7 @@ namespace AMS_Service
 
             set
             {
-                if (_Uptime != value)
+                if (_Uptime != value && !string.IsNullOrEmpty(value))
                 {
                     _Uptime = value;
                     UptimeFormat = value;
@@ -101,7 +93,7 @@ namespace AMS_Service
         public string Version { get; set; }
 
         [JsonIgnore]
-        public int _ServicePid { get; set; }
+        private int _ServicePid { get; set; }
 
         [JsonIgnore]
         public int ServicePid
@@ -143,51 +135,9 @@ namespace AMS_Service
             get { return _Type; }
             set
             {
-                if (string.IsNullOrEmpty(value))
-                {
-                    HeaderType = '\0';
-                }
-                else
-                {
-                    if (value[0] == 'C')
-                    {
-                        HeaderType = 'E'; //CM5000 to 'E'ncoder
-                    }
-                    else if (value[0] == 'D')
-                    {
-                        HeaderType = 'D'; //DR5000 to 'D'ecoder
-                    }
-                    else if (value[0] == 'T')
-                    {
-                        HeaderType = 'U'; // Titan Live to 'U'HD encoder
-                    }
-                }
                 if (_Type != value)
                 {
                     _Type = value;
-                }
-            }
-        }
-
-        [JsonIgnore]
-        public char HeaderType { get; set; }
-
-        //public ObservableCollection<Group> Groups { get; set; }
-
-        //public List<Group> Groups { get; set; }
-        [JsonIgnore]
-        public int _ErrorCount { get; set; }
-
-        [JsonProperty("error_count")]
-        public int ErrorCount
-        {
-            get { return _ErrorCount; }
-            set
-            {
-                if (_ErrorCount != value)
-                {
-                    _ErrorCount = value;
-                    OnPropertyChanged(new PropertyChangedEventArgs("ErrorCount"));
                 }
             }
         }
@@ -207,17 +157,38 @@ namespace AMS_Service
         }
 
         [JsonIgnore]
-        public string Message { get; set; }
-
-        [JsonIgnore]
         public string UpdateState
         {
             set
             {
-                this.Status = value;
+                //this.Status = value;
+                this.Status = GetServerStatusFromActive(value);
                 OnPropertyChanged(new PropertyChangedEventArgs("Status"));
-                logger.Info(string.Format($"{this.Ip} => ({Status}) api updated"));
+                //logger.Info($"{this.Ip} => ({Status}) api updated");
             }
+        }
+
+        private string GetServerStatusFromActive(string level)
+        {
+            if (!string.IsNullOrEmpty(this.Ip))
+            {
+                using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
+                {
+                    string query = string.Format($"SELECT level from active WHERE ip = '{this.Ip}'");
+                    conn.Open();
+                    MySqlCommand cmd = new MySqlCommand(query, conn);
+                    MySqlDataReader rdr = cmd.ExecuteReader();
+                    while (rdr.Read())
+                    {
+                        //logger.Info($"({this.Ip}) level : {level}, active : {rdr["level"].ToString()}");
+                        level = CompareState(level, rdr["level"].ToString());
+                        //logger.Info($"result : {level}");
+                    }
+                    rdr.Close();
+                }
+            }
+            //logger.Info($"finally level : {level}");
+            return level;
         }
 
         [JsonIgnore]
@@ -234,7 +205,6 @@ namespace AMS_Service
                         if (value.ToLower().Equals("normal"))
                         {
                             this.Color = "#00FF7F";
-                            this.Message = "Normal status";
                         }
                         else if (value.ToLower().Equals("critical"))
                         {
@@ -254,15 +224,14 @@ namespace AMS_Service
                         }
                         if (!string.IsNullOrEmpty(this.Status))
                         {
-                            logger.Info(String.Format($"({this.Ip})({this.ErrorCount}) {this.ModelName} ({this.Status}) => ({value}) changed"));
+                            //logger.Info($"({this.Ip}) {this.ModelName} ({this.Status}) => ({value}) changed");
+                            _Status = value;
                         }
-
-                        _Status = value;
                     }
                 }
                 else
                 {
-                    _Status = null;
+                    _Status = "Normal";
                 }
             }
         }
@@ -276,37 +245,13 @@ namespace AMS_Service
             Critical = 5
         }
 
-        [JsonIgnore]
-        public EnumIsConnect _IsConnect { get; set; }
-
-        [JsonIgnore]
-        public EnumIsConnect IsConnect
-        {
-            get { return _IsConnect; }
-            set
-            {
-                if (value == EnumIsConnect.Disconnect)
-                {
-                    this.UpdateState = Server.EnumStatus.Critical.ToString();
-                }
-                else if (value == EnumIsConnect.Connect && this.ErrorCount == 0)
-                {
-                    this.UpdateState = Server.EnumStatus.Normal.ToString();
-                }
-                _IsConnect = value;
-                //logger.Info(string.Format($"[{Ip}] connect status is {c.ToString()}"));
-            }
-        }
+        public EnumIsConnect IsConnect { get; set; }
 
         public enum EnumIsConnect
         {
-            Init = 0,
-            Connect = 1,
-            Disconnect = 2
+            Connect = 0,
+            Disconnect = 1
         }
-
-        [JsonIgnore]
-        public int ConnectionErrorCount { get; set; }
 
         [JsonIgnore]
         public string IsMute { get; set; }
@@ -316,40 +261,29 @@ namespace AMS_Service
 
         public Server()
         {
-            _Status = "";
-            IsConnect = (int)EnumIsConnect.Init;
-            ConnectionErrorCount = 0;
+            _Status = "Normal";
+            IsConnect = Server.EnumIsConnect.Connect;
         }
 
-        public void Clear()
+        public static string GetServerID(string ip)
         {
-            this.Ip = null;
-            //this.Location = 0;
-            this.Color = null;
-            this.Gid = null;
-            this.GroupName = null;
-            this.VideoOutputId = 0;
-            this.ServicePid = 0;
-            this.ModelName = null;
-            this.Message = null;
-            this.IsConnect = EnumIsConnect.Init;
-            this.HeaderType = '\0';
-            this.Status = null;
-            this.UnitName = null;
-            this.Version = null;
-            this.ErrorCount = 0;
-            this.ConnectionErrorCount = 0;
-        }
-
-        public void PutInfo(Server s)
-        {
-            this.Ip = s.Ip;
-            this.UnitName = s.UnitName;
-            this.Status = s.Status;
-            //this.Color = s.Color;
-            //this.Location = s.Location;
-            this.Uptime = s.Uptime;
-            this.Version = s.Version;
+            string id = null;
+            if (!string.IsNullOrEmpty(ip))
+            {
+                using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
+                {
+                    string query = string.Format($"SELECT id from server WHERE ip = '{ip}'");
+                    conn.Open();
+                    MySqlCommand cmd = new MySqlCommand(query, conn);
+                    MySqlDataReader rdr = cmd.ExecuteReader();
+                    while (rdr.Read())
+                    {
+                        id = rdr["id"].ToString();
+                    }
+                    rdr.Close();
+                }
+            }
+            return id;
         }
 
         public event PropertyChangedEventHandler PropertyChanged = delegate { };
@@ -359,41 +293,52 @@ namespace AMS_Service
             if (PropertyChanged != null)
             {
                 PropertyChanged(this, e);
-                if (e.PropertyName.Equals("Status") ||
-                        e.PropertyName.Equals("ErrorCount") ||
-                        e.PropertyName.Equals("Uptime"))
+                if (e.PropertyName.Equals("Status"))
                 {
                     UpdateServerStatus();
+                }
+                else if (e.PropertyName.Equals("Uptime"))
+                {
+                    UpdateServerUptime();
                 }
             }
         }
 
-        public static int GetServerLastStatus()
+        public static List<Server> GetServerList()
         {
-            int ret = 0;
-            string query = "UPDATE server set status = @status";
+            DataTable dt = new DataTable();
+            string query = @"SELECT S.id, S.gid, S.name, S.ip, S.type, IFNULL(S.uptime,'') as uptime, S.status, S.ismute, S.reboot
+, IF(S.status = 'Critical', 'Red', IF(S.status = 'Warning', '#FF8000', IF(S.status = 'Information', 'Blue', 'Green'))) AS color
+, G.name as grp_name
+, A.path FROM server S
+LEFT JOIN asset A ON S.status = A.id
+LEFT JOIN grp G ON G.id = S.gid
+ORDER BY S.name ASC";
+
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
             {
                 conn.Open();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
-                cmd.Parameters.AddWithValue("@status", "idle");
-                //cmd.Prepare();
-                ret = cmd.ExecuteNonQuery();
+                MySqlDataAdapter adpt = new MySqlDataAdapter(query, conn);
+                adpt.Fill(dt);
             }
-            return ret;
+
+            return dt.AsEnumerable().Select(row => new Server
+            {
+                Id = row.Field<string>("id"),
+                Gid = row.Field<string>("gid"),
+                UnitName = row.Field<string>("name"),
+                Ip = row.Field<string>("ip"),
+                GroupName = row.Field<string>("grp_name"),
+                ModelName = row.Field<string>("type"),
+                Uptime = row.Field<string>("uptime"),
+                Status = row.Field<string>("status"),
+                IsMute = row.Field<string>("ismute"),
+                Reboot = row.Field<string>("reboot")
+            }).ToList();
         }
 
-        // deprecated
-        /*
-        public void SetServerInfo(string name, string ip, string gid)
-        {
-            UnitName = name;
-            Ip = ip;
-            Gid = gid;
-        }
-        */
-
-        public static string CompareState(string a, string b)
+        public string CompareState(string a, string b)
         {
             a = char.ToUpper(a[0]) + a.Substring(1);
             b = char.ToUpper(b[0]) + b.Substring(1);
@@ -409,133 +354,64 @@ namespace AMS_Service
             {
                 str = Enum.GetName(typeof(EnumStatus), e2);
             }
-
-            return str.ToLower();
+            return str;
         }
 
-        public static IEnumerable<Server> GetServerSettings()
+        public async void UpdateServerStatus()
         {
-            DataTable dt = new DataTable();
-            string query = @"SELECT S.*, G.name as grp_name, A.path FROM server S LEFT JOIN asset A ON S.status = A.id LEFT JOIN grp G ON G.id = S.gid ORDER BY G.name, S.create_time";
-            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
-            {
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                //cmd.Prepare();
-                MySqlDataAdapter adpt = new MySqlDataAdapter(query, conn);
-                adpt.Fill(dt);
-            }
-
-            return dt.AsEnumerable().Select(row => new Server
-            {
-                Id = row.Field<string>("id"),
-                Gid = row.Field<string>("gid"),
-                UnitName = row.Field<string>("name"),
-                Ip = row.Field<string>("ip"),
-                GroupName = row.Field<string>("grp_name"),
-            }).ToList();
-        }
-
-        public string AddServer()
-        {
-            string id = null;
-
-            if (String.IsNullOrEmpty(UnitName))
-            {
-            }
-            else if (String.IsNullOrEmpty(Ip))
-            {
-            }
-            else if (String.IsNullOrEmpty(Gid))
-            {
-            }
-            string query = "SELECT uuid() as id";
-
-            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
-            {
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                MySqlDataReader rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                {
-                    id = rdr["id"].ToString();
-                }
-                rdr.Close();
-            }
-
-            query = "INSERT INTO server (id, ip, name, gid) VALUES (@id, @ip, @name, @gid)";
-            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
-            {
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                cmd.Parameters.AddWithValue("@id", id);
-                cmd.Parameters.AddWithValue("@name", this.UnitName);
-                cmd.Parameters.AddWithValue("@ip", this.Ip);
-                cmd.Parameters.AddWithValue("@gid", this.Gid);
-                //cmd.Prepare();
-                cmd.ExecuteNonQuery();
-            }
-            return id;
-        }
-
-        public int EditServer()
-        {
-            int ret = 0;
-            string query = "UPDATE server set ip = @ip, name = @name, gid = @gid WHERE id = @id";
-            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
-            {
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                cmd.Parameters.AddWithValue("@id", this.Id);
-                cmd.Parameters.AddWithValue("@ip", this.Ip);
-                cmd.Parameters.AddWithValue("@name", this.UnitName);
-                cmd.Parameters.AddWithValue("@gid", this.Gid);
-                //cmd.Prepare();
-                ret = cmd.ExecuteNonQuery();
-            }
-            return ret;
-        }
-
-        public static int DeleteServer(Server server)
-        {
-            int ret = 0;
-            string query = "DELETE FROM server WHERE id = @id";
-            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
-            {
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                cmd.Parameters.AddWithValue("@id", server.Id);
-                //cmd.Prepare();
-                ret = cmd.ExecuteNonQuery();
-            }
-            return ret;
-        }
-
-        public int UpdateServerStatus()
-        {
-            int ret = 0;
-            string query = "UPDATE server set status = @status, uptime = @uptime, type = @type, name = @name, error_count = @error_count, connection_error_count = @connection_error_count, uptime_format = @uptime_format WHERE id = @id";
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
             {
                 if (string.IsNullOrEmpty(this.ModelName))
                     this.ModelName = "CM5000";
 
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                cmd.Parameters.AddWithValue("@id", this.Id);
-                cmd.Parameters.AddWithValue("@status", this.Status);
-                cmd.Parameters.AddWithValue("@uptime", this.Uptime);
-                cmd.Parameters.AddWithValue("@uptime_format", this.UptimeFormat);
-                cmd.Parameters.AddWithValue("@name", this.UnitName);
-                //cmd.Parameters.AddWithValue("@location", this.Location);
-                cmd.Parameters.AddWithValue("@type", this.ModelName);
-                cmd.Parameters.AddWithValue("@error_count", this.ErrorCount);
-                cmd.Parameters.AddWithValue("@connection_error_count", this.ConnectionErrorCount);
-                //cmd.Prepare();
-                ret = cmd.ExecuteNonQuery();
-                //logger.Info(string.Format($"({this.Ip}) database status ({this.Status}) changed"));
+                try
+                {
+                    await conn.OpenAsync();
+                    string sql = "UPDATE server set status = @status WHERE id = @id";
+
+                    using (MySqlCommand cmd = new MySqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", this.Id);
+                        cmd.Parameters.AddWithValue("@status", this.Status);
+                        await cmd.ExecuteNonQueryAsync();
+
+                        //logger.Info($"UpdateServerStatus ({this.Status}), {this.Ip}, {this.Uptime}, {this.UptimeFormat}");
+                    }
+                }
+                catch (Exception e)
+                {
+                    logger.Error(e.ToString());
+                }
             }
-            return ret;
+        }
+
+        public async void UpdateServerUptime()
+        {
+            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
+            {
+                if (string.IsNullOrEmpty(this.ModelName))
+                    this.ModelName = "CM5000";
+
+                try
+                {
+                    await conn.OpenAsync();
+                    string sql = "UPDATE server set uptime = @uptime, uptime_format = @uptime_format WHERE id = @id";
+
+                    using (MySqlCommand cmd = new MySqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", this.Id);
+                        cmd.Parameters.AddWithValue("@uptime", this.Uptime);
+                        cmd.Parameters.AddWithValue("@uptime_format", this.UptimeFormat);
+                        await cmd.ExecuteNonQueryAsync();
+
+                        //logger.Info($"UpdateServerStatus ({this.Status}), {this.Ip}, {this.Uptime}, {this.UptimeFormat}");
+                    }
+                }
+                catch (Exception e)
+                {
+                    logger.Error(e.ToString());
+                }
+            }
         }
 
         public static int UpdateServerInformation(Server server)
@@ -550,24 +426,6 @@ namespace AMS_Service
                 cmd.Parameters.AddWithValue("@version", server.Version);
                 //cmd.Prepare();
                 ret = cmd.ExecuteNonQuery();
-            }
-            return ret;
-        }
-
-        public static bool ValidServerIP(string ip)
-        {
-            bool ret = false;
-            string query = String.Format($"SELECT ip FROM server WHERE ip = '{ip}'");
-            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
-            {
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                MySqlDataReader rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                {
-                    ret = true;
-                }
-                rdr.Close();
             }
             return ret;
         }
@@ -587,7 +445,7 @@ namespace AMS_Service
                 MySqlTransaction trans = conn.BeginTransaction();
                 try
                 {
-                    string query = String.Format($"DELETE FROM server");
+                    string query = $"DELETE FROM server";
                     MySqlCommand cmd = conn.CreateCommand();
                     cmd.CommandText = query;
                     //cmd.Prepare();
@@ -620,44 +478,6 @@ namespace AMS_Service
             }
 
             return true;
-        }
-
-        public static List<Server> GetServerList()
-        {
-            DataTable dt = new DataTable();
-            string query = @"SELECT S.id, S.gid, S.name, S.ip, S.type, S.error_count, S.connection_error_count, IFNULL(S.uptime,'') as uptime, S.status, S.ismute, S.reboot
-, IF(S.status = 'Critical', 'Red', IF(S.status = 'Warning', '#FF8000', IF(S.status = 'Information', 'Blue', 'Green'))) AS color
-, G.name as grp_name
-, A.path FROM server S
-LEFT JOIN asset A ON S.status = A.id
-LEFT JOIN grp G ON G.id = S.gid
-ORDER BY S.location ASC";
-
-            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
-            {
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                MySqlDataAdapter adpt = new MySqlDataAdapter(query, conn);
-                adpt.Fill(dt);
-            }
-
-            return dt.AsEnumerable().Select(row => new Server
-            {
-                Id = row.Field<string>("id"),
-                Gid = row.Field<string>("gid"),
-                UnitName = row.Field<string>("name"),
-                Ip = row.Field<string>("ip"),
-                GroupName = row.Field<string>("grp_name"),
-                ModelName = row.Field<string>("type"),
-                //Location = row.Field<int>("location"),
-                ErrorCount = row.Field<int>("error_count"),
-                ConnectionErrorCount = row.Field<int>("connection_error_count"),
-                //Color = row.Field<string>("color"),
-                Uptime = row.Field<string>("uptime"),
-                Status = row.Field<string>("status"),
-                IsMute = row.Field<string>("ismute"),
-                Reboot = row.Field<string>("reboot")
-            }).ToList();
         }
     }
 }

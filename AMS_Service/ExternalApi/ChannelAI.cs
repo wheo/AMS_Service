@@ -13,6 +13,7 @@ namespace AMS_Service.ExternalApi
 {
     internal static class ChannelAI
     {
+        public static bool IsEnable { get; set; }
         public static string Host { get; set; }
 
         private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
@@ -27,44 +28,60 @@ namespace AMS_Service.ExternalApi
             return "AMS";
         }
 
-        public static void CombinePostEvent(Snmp snmp, Server server)
+        public static void AckAlarmEvent(ActiveAlarm alarm)
         {
-            logger.Info("event_id : " + snmp.event_id);
-            logger.Info("type : " + snmp.type);
-            if (snmp.TypeValue == "begin")
+            string event_state = null;
+            string response = null;
+            if (!string.IsNullOrEmpty(alarm.Id))
             {
-                if (!string.IsNullOrEmpty(snmp.event_id))
-                {
-                    string device_type = null;
-                    if (server.ModelName == "CM5000")
-                    {
-                        device_type = "Encoder";
-                    }
-                    else if (server.ModelName == "DR5000")
-                    {
-                        device_type = "Decoder";
-                    }
-                    else if (server.ModelName == "Titan")
-                    {
-                        device_type = "Encoder";
-                    }
-
-                    string response = PostEvent(snmp.event_id, device_type, server.Id, server.UnitName, "162"
-                        , "Service", "SERVICE_ID_01", "SERVICE_NAME_01"
-                        , "Equipment Alarm", snmp.Api_msg, "A2", "Outstanding"
-                        , snmp.Level.ToString()
-                        , snmp.TranslateValue);
-
-                    logger.Info("response : " + response);
-                }
-            }
-            else if (snmp.TypeValue == "end")
-            {
-                //
+                event_state = "Acknowledged";
+                response = PutEvent(alarm.Id, Server.GetServerID(alarm.Ip), event_state, alarm.Value);
+                logger.Info($"response : {response}");
             }
         }
 
-        public static string PostEvent(
+        public static void CombinePostEvent(Snmp snmp, Server server)
+        {
+            logger.Info($"event_id : {snmp.event_id}");
+            logger.Info($"type : {snmp.type}");
+
+            if (!string.IsNullOrEmpty(snmp.event_id))
+            {
+                string device_type = null;
+                string event_state = null;
+                string response = null;
+                if (server.ModelName == "CM5000")
+                {
+                    device_type = "Encoder";
+                }
+                else if (server.ModelName == "DR5000")
+                {
+                    device_type = "Decoder";
+                }
+                else if (server.ModelName == "Titan")
+                {
+                    device_type = "Encoder";
+                }
+                if (snmp.TypeValue == "begin")
+                {
+                    event_state = "Outstanding";
+                    response = PostEvent(snmp.event_id, device_type, server.Id, server.UnitName, "162"
+                        , "Service", "SERVICE_ID_01", "SERVICE_NAME_01"
+                        , "Equipment Alarm", snmp.Api_msg, "A2", event_state
+                        , snmp.Level.ToString()
+                        , snmp.TranslateValue);
+                }
+                else if (snmp.TypeValue == "end")
+                {
+                    event_state = "Terminated";
+                    response = PutEvent(snmp.event_id, server.Id, event_state, snmp.TranslateValue);
+                }
+
+                logger.Info($"response : {response}");
+            }
+        }
+
+        private static string PostEvent(
             string event_id
             , string device_type, string device_id, string device_name, string port_name
             , string target_type, string target_id, string target_name
@@ -101,14 +118,34 @@ namespace AMS_Service.ExternalApi
             o.Add("timestamp", timestamp);
             o.Add("message", message);
             var response = Utils.Http.PostAsync("/v1/event", o);
-            logger.Info("-------------- event --------------");
+            logger.Info("-------------- post event --------------");
+            logger.Info($"{o.ToString(Formatting.Indented)}");
 
             return response.Result.Content.ReadAsStringAsync().Result;
         }
 
-        public static string PutEvent()
+        private static string PutEvent(string event_id, string device_id, string event_state, string reason)
         {
-            return null;
+            string system_name = GetSystemName();
+            string timestamp = GetTimestamp();
+            JObject o = new JObject();
+            o.Add("system_name", system_name);
+            o.Add("event_id", event_id);
+            o.Add("device_id", device_id);
+            o.Add("event_state", event_state);
+            o.Add("reason", $"{reason} Alarm is {event_state.ToLower()}");
+            o.Add("timestamp", timestamp);
+            JObject user = new JObject();
+            o.Add("user", user);
+            user.Add("user_id", "system");
+            user.Add("user_company", "goup");
+            user.Add("user_name", "system");
+
+            var response = Utils.Http.PutAsync("/v1/event", o);
+            logger.Info("-------------- put event --------------");
+            logger.Info($"{o.ToString(Formatting.Indented)}");
+
+            return response.Result.Content.ReadAsStringAsync().Result;
         }
 
         public static string Performances(string device_id

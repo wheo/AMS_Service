@@ -29,12 +29,7 @@ namespace AMS_Service
             this.pw = pw;
             this.databaseName = databaseName;
 
-            ConnectionString = String.Format("server={0};port={1};uid={2};pwd={3};database={4};charset=utf8mb4;SslMode=none",
-                    server,
-                    port,
-                    user,
-                    pw,
-                    databaseName);
+            ConnectionString = String.Format($"server={server};port={port};uid={user};pwd={pw};database={databaseName};charset=utf8mb4;SslMode=none");
         }
 
         public static DatabaseManager GetInstance()

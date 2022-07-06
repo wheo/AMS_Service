@@ -34,11 +34,24 @@ namespace AMS_Service.Service
         public static string _DR5000CurrentVersion_oid = "1.3.6.1.4.1.27338.5.6.1.0";
         public static string _CM5000CurrentVersion_oid = "1.3.6.1.4.1.27338.4.4.1.0";
 
+        public static int _timeout = 100;
+        public static int _retry = 3;
+
         private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
         public SnmpService()
         {
             //Constructor
+        }
+
+        public static void SetTimeout(int timeout)
+        {
+            _timeout = timeout;
+        }
+
+        public static void SetRetry(int retry)
+        {
+            _retry = retry;
         }
 
         public static bool Set(Server s)
@@ -131,7 +144,7 @@ namespace AMS_Service.Service
             // IPAddress class is easy to use here because it will try to resolve constructor parameter if it doesn't parse to an IP address
             IpAddress agent = new IpAddress(s.Ip);
             // Construct target
-            UdpTarget target = new UdpTarget((IPAddress)agent, 161, 10, 2);
+            UdpTarget target = new UdpTarget((IPAddress)agent, 161, _timeout, _retry);
             // Pdu class used for all requests
             Pdu pdu = new Pdu(PduType.Get);
             /*
@@ -280,7 +293,7 @@ namespace AMS_Service.Service
             // IPAddress class is easy to use here because it will try to resolve constructor parameter if it doesn't parse to an IP address
             IpAddress agent = new IpAddress(s.Ip);
             // Construct target
-            UdpTarget target = new UdpTarget((IPAddress)agent, 161, 10, 2);
+            UdpTarget target = new UdpTarget((IPAddress)agent, 161, _timeout, _retry);
             // Pdu class used for all requests
             Pdu pdu = new Pdu(PduType.Get);
             /*

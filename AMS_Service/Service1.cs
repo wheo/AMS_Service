@@ -26,10 +26,13 @@ namespace AMS_Service
 {
     public partial class Service1 : ServiceBase
     {
-        private int _counter = 0;
+        // private int _counter = 0;
 
         private int _SnmpPort = 162;
         private int _PollingSec = 10;
+        private int _SnmpGetTimeout = 100;
+        private int _SnmpRetryCount = 3;
+
         private JsonConfig jsonConfig;
 
         protected Thread m_threadSnmpGet;
@@ -64,6 +67,7 @@ namespace AMS_Service
                     jsonConfig.DatabaseName = "TNM_NMS";
 
                     jsonConfig.ChannelAIHost = "http://61.78.151.69:8081";
+                    jsonConfig.EnableChannelAI = false;
 
                     jsonString = JsonConvert.SerializeObject(jsonConfig);
                     File.WriteAllText(jsonConfig.configFileName, jsonString);
@@ -75,14 +79,19 @@ namespace AMS_Service
                 DatabaseManager.GetInstance().SetConnectionString(jsonConfig.ip, jsonConfig.port, jsonConfig.id, jsonConfig.pw, jsonConfig.DatabaseName);
 
                 ChannelAI.Host = jsonConfig.ChannelAIHost;
-                logger.Info("ChannelAI.Host : " + ChannelAI.Host);
+                ChannelAI.IsEnable = jsonConfig.EnableChannelAI;
+                logger.Info($"ChannelAI.Host : {ChannelAI.Host}");
+                logger.Info($"Enable ChannelAI : {ChannelAI.IsEnable}");
+
                 _SnmpPort = Snmp.GetSnmpPort();
                 _PollingSec = Snmp.GetPollingSec();
 
                 m_get_delay = new TimeSpan(0, 0, 0, _PollingSec, 0);
                 m_trap_delay = new TimeSpan(0, 0, 0, 0, 500);
-                logger.Info("SnmpPort : " + _SnmpPort);
-                logger.Info("Polling Sec : " + _PollingSec);
+                logger.Info($"SnmpPort : {_SnmpPort}");
+                logger.Info($"Polling Sec : {_PollingSec}");
+                logger.Info($"Snmp Get Timeout  : {_SnmpGetTimeout}");
+                logger.Info($"Snmp Get Retry Count : {_SnmpRetryCount}");
             }
             catch (FileLoadException e)
             {
@@ -92,18 +101,11 @@ namespace AMS_Service
             return true;
         }
 
-        private void LogInit()
-        {
-            // 최초 실행시에 로그를 가져옴
-            NmsInfo.GetInstance().activeLog = LogItem.GetLog();
-        }
-
         protected override void OnStart(string[] args)
         {
             LoadConfig();
-            LogInit();
-            ThreadStart tsGet = new ThreadStart(this.SnmpGetService);
-            ThreadStart tsTrap = new ThreadStart(this.TrapListener);
+            ThreadStart tsGet = new ThreadStart(this.SnmpGetServiceAsync);
+            ThreadStart tsTrap = new ThreadStart(this.TrapListenerAsync);
             m_shutdownEvent = new ManualResetEvent(false);
             m_threadSnmpGet = new Thread(tsGet);
             m_threadSnmpTrap = new Thread(tsTrap);
@@ -112,18 +114,40 @@ namespace AMS_Service
             base.OnStart(args);
         }
 
-        private void SnmpGetService()
+        private async void SnmpGetServiceAsync()
         {
             logger.Info("SnmpGetService is created");
 
             bool signal = false;
-
-            //AMS 서비스 실행 후 처음으로 받아오는 값
-            NmsInfo.GetInstance().serverList = Server.GetServerList();
-            foreach (Server t in NmsInfo.GetInstance().serverList)
+            List<ActiveAlarm> firstActiveAlarms = null;
+            List<Server> firstServers = null;
+            try
             {
-                logger.Info(string.Format($"최초 실행 : {t.Id}, {t.UnitName}, {t.ModelName}, {t.Status}"));
+                firstActiveAlarms = ActiveAlarm.GetActiveAlarm();
+                firstServers = Server.GetServerList();
+
+                foreach (ActiveAlarm alarm in firstActiveAlarms)
+                {
+                    Server s = InitCheck(firstServers, alarm);
+                    if (s != null)
+                    {
+                        s.IsConnect = Server.EnumIsConnect.Disconnect;
+                    }
+                }
             }
+            catch (Exception e)
+            {
+                logger.Error($"{e.ToString()}");
+                firstServers = Server.GetServerList();
+            }
+            logger.Info($"*** 서비스 로드 후 최초 서버 정보 ***");
+            foreach (Server s in firstServers)
+            {
+                logger.Info($"{s.Ip}, {s.UnitName}, InitConnect : {s.IsConnect}");
+            }
+            logger.Info($"*************************************");
+
+            List<Server> oldServers = null;
 
             while (true)
             {
@@ -135,181 +159,137 @@ namespace AMS_Service
                         break;
                     }
 
+                    List<Server> newServers = null;
+
                     //현재 서버 상태를 받아옴
-                    List<Server> currentServerList = Server.GetServerList();
-
-                    // api 서버로부터 가져온 장비리스트 비교 후 삭제된 서버를 클래스에 반영
-                    List<Server> temp = new List<Server>();
-
-                    foreach (Server s in NmsInfo.GetInstance().serverList)
+                    if (oldServers == null)
                     {
-                        Server c = (Server)currentServerList.Where(x => x.Id == s.Id).FirstOrDefault();
-                        if (c == null)
-                        {
-                            temp.Add(s);
-                        }
+                        newServers = firstServers;
+                        oldServers = firstServers;
                     }
-                    foreach (Server s in temp)
+                    else
                     {
-                        NmsInfo.GetInstance().serverList.Remove(s);
-                        logger.Info(string.Format($"server is removed({s.Ip}, {s.Id} ({s.UnitName}, count : {NmsInfo.GetInstance().serverList.Count})"));
-                    }
-
-                    foreach (Server cs in currentServerList)
-                    {
-                        IEnumerable<Server> results = NmsInfo.GetInstance().serverList;
-                        //Server c = (Server)results.Where(x => x.Id == s.Id).FirstOrDefault();
-                        Server s = (Server)NmsInfo.GetInstance().serverList.Where(x => x.Id == cs.Id).FirstOrDefault();
-                        if (s != null)
-                        {
-                            //logger.Info("최신상태 (" + cs.Id + ") : " + cs.UnitName + ", " + cs.Status + " | 현재상태 (" + s.Id + ") : " + s.UnitName + ", " + s.Status);\
-                            logger.Info(string.Format($"최신상태 ({  cs.Id }) : { cs.UnitName }, { cs.Status }, reboot : {cs.Reboot} | 현재상태 ({ s.Id }) : { s.UnitName }, {s.Status}, reboot : {cs.Reboot}"));
-                            s.PutInfo(cs);
-                        }
-                        else
-                        {
-                            NmsInfo.GetInstance().serverList.Add(cs);
-                            logger.Info(string.Format($"new server added({cs.Ip}({cs.UnitName}), {cs.Id}, / {NmsInfo.GetInstance().serverList.Count})"));
-                        }
+                        newServers = Server.GetServerList();
                     }
 
                     JArray j = new JArray();
 
-                    foreach (Server server in NmsInfo.GetInstance().serverList)
+                    foreach (Server server in newServers)
                     {
-                        //logger.Info(string.Format($"({server.Ip})({server.UnitName})"));
-                        //string serviceOID = null;
+                        Server oldServer = null;
 
-                        logger.Info(string.Format($"({server.Ip}), {server.ModelName}, {server.IsConnect.ToString()}, {server.Status}"));
-
-                        JObject o = new JObject();
-                        o.Add("device_id", server.Id);
-                        o.Add("status", server.Status);
-                        //10d 7h 51m 0s 520ms to second
-                        string[] uptime;
-                        if (!string.IsNullOrEmpty(server.Uptime))
+                        oldServer = GetOldServer(oldServers, server);
+                        if (oldServer == null)
                         {
-                            uptime = server.Uptime.Split(' ');
-                            int day = Convert.ToInt32(uptime[0].Substring(0, uptime[0].Length - 1));
-                            int hour = Convert.ToInt32(uptime[1].Substring(0, uptime[1].Length - 1));
-                            int min = Convert.ToInt32(uptime[2].Substring(0, uptime[2].Length - 1));
-                            int sec = Convert.ToInt32(uptime[3].Substring(0, uptime[3].Length - 1));
-                            Int64 uptime_sec = day * 86400 + hour * 3600 + min * 60 + sec;
-                            o.Add("sys_uptime", uptime_sec);
+                            oldServer = server;
                         }
-                        else
-                        {
-                            o.Add("sys_uptime", 0);
-                        }
+                        //logger.Info($"*** old server ({oldServer.Ip}), {oldServer.ModelName}, {oldServer.Status}, isConnect : {oldServer.IsConnect}");
 
-                        j.Add(o);
+                        Snmp snmp = new Snmp
+                        {
+                            IP = server.Ip,
+                            Port = "65535",
+                            Community = "public",
+                            Oid = SnmpService._MyConnectionOid,
+                            LevelString = Server.EnumStatus.Normal.ToString(),
+                            TypeValue = "begin",
+                            TranslateValue = ""
+                        };
+
+                        //logger.Info($"*** new server ({server.Ip}), {server.ModelName}, {server.Status}, isConnect : {server.IsConnect}");
+                        SnmpService.SetTimeout(_SnmpGetTimeout);
+                        SnmpService.SetRetry(_SnmpRetryCount);
 
                         if (SnmpService.Get(server))
                         {
                             if (!string.IsNullOrEmpty(server.ModelName))
                             {
-                                #region deprecated
-
-                                /*
-                                if ("CM5000".Equals(server.ModelName))
+                                if (oldServer.IsConnect == Server.EnumIsConnect.Disconnect)
                                 {
-                                    serviceOID = SnmpService._CM5000ModelName_oid;
+                                    snmp.IP = server.Ip;
+                                    snmp.Port = "65535";
+                                    snmp.Community = "public";
+                                    snmp.Oid = SnmpService._MyConnectionOid;
+                                    snmp.LevelString = Server.EnumStatus.Critical.ToString();
+                                    snmp.TypeValue = "end";
+                                    snmp.TranslateValue = "Failed to connection";
+                                    snmp.event_id = await LogManager.LoggingDatabase(snmp);
                                 }
-                                else
+                            }
+                            server.IsConnect = Server.EnumIsConnect.Connect;
+                            server.UpdateState = Server.EnumStatus.Normal.ToString();
+                        }
+                        else // snmp get time out
+                        {
+                            if (!string.IsNullOrEmpty(server.Ip))
+                            {
+                                if (oldServer.IsConnect == Server.EnumIsConnect.Connect)
                                 {
-                                    serviceOID = SnmpService._DR5000ModelName_oid;
+                                    snmp.IP = server.Ip;
+                                    snmp.Port = "65535";
+                                    snmp.Community = "public";
+                                    snmp.Oid = SnmpService._MyConnectionOid;
+                                    snmp.LevelString = Server.EnumStatus.Critical.ToString();
+                                    snmp.TypeValue = "begin";
+                                    snmp.TranslateValue = "Failed to connection";
+                                    snmp.event_id = await LogManager.LoggingDatabase(snmp);
                                 }
-                                */
+                            }
+                            server.IsConnect = Server.EnumIsConnect.Disconnect;
+                            server.UpdateState = Server.EnumStatus.Critical.ToString();
+                        }
 
-                                #endregion deprecated
-
-                                // 요청 후 응답이 왔을 때
-                                if (server.IsConnect != Server.EnumIsConnect.Connect)
-                                {
-                                    //init or disconnect
-                                    if (server.IsConnect != Server.EnumIsConnect.Init)
-                                    {
-                                        Snmp snmp = new Snmp
-                                        {
-                                            IP = server.Ip,
-                                            Port = "65535",
-                                            Community = "public",
-                                            Oid = SnmpService._MyConnectionOid,
-                                            LevelString = Server.EnumStatus.Critical.ToString(),
-                                            TypeValue = "end",
-                                            TranslateValue = "Failed to connection"
-                                        };
-                                        snmp.event_id = LogItem.LoggingDatabase(snmp);
-
-                                        logger.Info(string.Format($"{snmp.IP}, ({snmp.TypeValue}) {snmp.TranslateValue}"));
-                                    }
-                                    server.ConnectionErrorCount = 0;
-                                    server.IsConnect = Server.EnumIsConnect.Connect;
-
-                                    LogItem curruntStatusItem = FindCurrentStatusItem(NmsInfo.GetInstance().activeLog, server.Ip);
-                                    if (curruntStatusItem != null)
-                                    {
-                                        logger.Info(string.Format($"{server.Ip}, FindCurrentStatusItem : {curruntStatusItem.Level}"));
-                                        server.UpdateState = curruntStatusItem.Level;
-                                        server.Message = curruntStatusItem.Value;
-                                    }
-                                    else
-                                    {
-                                        server.UpdateState = Server.EnumStatus.Normal.ToString();
-                                    }
-                                }
+                        if (ChannelAI.IsEnable)
+                        {
+                            JObject o = new JObject();
+                            o.Add("device_id", server.Id);
+                            o.Add("status", server.Status);
+                            //10d 7h 51m 0s 520ms to second
+                            string[] uptime;
+                            if (!string.IsNullOrEmpty(server.Uptime))
+                            {
+                                uptime = server.Uptime.Split(' ');
+                                int day = Convert.ToInt32(uptime[0].Substring(0, uptime[0].Length - 1));
+                                int hour = Convert.ToInt32(uptime[1].Substring(0, uptime[1].Length - 1));
+                                int min = Convert.ToInt32(uptime[2].Substring(0, uptime[2].Length - 1));
+                                int sec = Convert.ToInt32(uptime[3].Substring(0, uptime[3].Length - 1));
+                                Int64 uptime_sec = day * 86400 + hour * 3600 + min * 60 + sec;
+                                o.Add("sys_uptime", uptime_sec);
                             }
                             else
                             {
-                                //ModelName 없을 때
+                                o.Add("sys_uptime", 0);
                             }
-                        }
-                        else
-                        {
-                            //logger.Info(string.Format($" you are here this is disconnect zone ({server.Ip}) {server.IsConnect.ToString()}"));
-                            if (!string.IsNullOrEmpty(server.Ip))
-                            {
-                                int limit = 3;
-                                server.ConnectionErrorCount++;
 
-                                if (server.IsConnect != Server.EnumIsConnect.Disconnect && server.ConnectionErrorCount > limit)
-                                {
-                                    //connect or init
-
-                                    Snmp snmp = new Snmp
-                                    {
-                                        IP = server.Ip,
-                                        Port = "65535",
-                                        Community = "public",
-                                        Oid = SnmpService._MyConnectionOid,
-                                        LevelString = Server.EnumStatus.Critical.ToString(),
-                                        TypeValue = "begin",
-                                        TranslateValue = "Failed to connection"
-                                    };
-
-                                    //중복 Failed to connection check
-                                    if (snmp.ConnectionCheck())
-                                    {
-                                        LogItem.LoggingDatabase(snmp);
-                                        logger.Info(string.Format($"{snmp.IP}, ({snmp.TypeValue}) {snmp.TranslateValue}"));
-                                    }
-                                    else
-                                    {
-                                        logger.Info(string.Format($"중복 connection error log 존재함 ({snmp.IP})"));
-                                    }
-                                }
-                                if (server.ConnectionErrorCount > limit)
-                                {
-                                    server.IsConnect = Server.EnumIsConnect.Disconnect;
-                                }
-                            }
+                            j.Add(o);
                         }
                     }
-                    // 채널 AI status
-                    /*
-                    string response = ExternalApi.ChannelAI.DeviceState(j);
-                    logger.Info("response : " + response);
-                    */
+
+                    if (ChannelAI.IsEnable)
+                    {
+                        // 채널 AI status
+                        string response = ExternalApi.ChannelAI.DeviceState(j);
+                        logger.Info("api response : " + response);
+                    }
+
+                    // ack check
+                    if (Setting.GetAck() == "1")
+                    {
+                        List<ActiveAlarm> ackAlarm = ActiveAlarm.GetActiveAlarmStillNotAck();
+                        foreach (ActiveAlarm alarm in ackAlarm)
+                        {
+                            ActiveAlarm.UpdateAckAlarm(alarm);
+
+                            // update and channelAI api call
+                            if (ChannelAI.IsEnable)
+                            {
+                                ChannelAI.AckAlarmEvent(alarm);
+                            }
+                        }
+                        ActiveAlarm.UpdateAckZero();
+                    }
+
+                    oldServers = newServers;
                 }
                 catch (Exception ex)
                 {
@@ -320,11 +300,40 @@ namespace AMS_Service
                     //logger.Info("SnmpGetService is Alive(" + ++_counter + ")");
                 }
             }
-
             logger.Info(" *** SnmpGetService exit ***");
         }
 
-        private void TrapListener()
+        private Server GetOldServer(List<Server> oldServers, Server s)
+        {
+            IEnumerable<Server> items = from x in oldServers
+                                        where x.Id == s.Id
+                                        select x;
+            if (items.Count() == 0)
+            {
+                return null;
+            }
+            else
+            {
+                return items.ElementAt(0);
+            }
+        }
+
+        private Server InitCheck(List<Server> servers, ActiveAlarm a)
+        {
+            IEnumerable<Server> items = from x in servers
+                                        where x.Ip == a.Ip && a.Value.ToLower() == "failed to connection"
+                                        select x;
+            if (items.Count() == 0)
+            {
+                return null;
+            }
+            else
+            {
+                return items.ElementAt(0);
+            }
+        }
+
+        private async void TrapListenerAsync()
         {
             logger.Info("TrapListener is created");
 
@@ -345,7 +354,7 @@ namespace AMS_Service
             // Disable timeout processing. Just block until packet is received
 
             int inlen = -1;
-            logger.Info(string.Format($"Waiting for snmp trap"));
+            logger.Info("Waiting for snmp trap");
             bool signal = false;
             try
             {
@@ -379,16 +388,16 @@ namespace AMS_Service
                             // Parse SNMP Version 1 TRAP packet
                             SnmpV1TrapPacket pkt = new SnmpV1TrapPacket();
                             pkt.decode(indata, inlen);
-                            logger.Info(string.Format("** SNMP Version 1 TRAP received from {0}:", inep.ToString()));
-                            logger.Info(string.Format("*** Trap generic: {0}", pkt.Pdu.Generic));
-                            logger.Info(string.Format("*** Trap specific: {0}", pkt.Pdu.Specific));
-                            logger.Info(string.Format("*** Agent address: {0}", pkt.Pdu.AgentAddress.ToString()));
-                            logger.Info(string.Format("*** Timestamp: {0}", pkt.Pdu.TimeStamp.ToString()));
-                            logger.Info(string.Format("*** VarBind count: {0}", pkt.Pdu.VbList.Count));
+                            logger.Info($"** SNMP Version 1 TRAP received from {inep.ToString()}:");
+                            logger.Info($"*** Trap generic: {pkt.Pdu.Generic}");
+                            logger.Info($"*** Trap specific: {pkt.Pdu.Specific}");
+                            logger.Info($"*** Agent address: {pkt.Pdu.AgentAddress.ToString()}");
+                            logger.Info($"*** Timestamp: {pkt.Pdu.TimeStamp.ToString()}");
+                            logger.Info($"*** VarBind count: {pkt.Pdu.VbList.Count}");
                             logger.Info("*** VarBind content:");
                             foreach (Vb v in pkt.Pdu.VbList)
                             {
-                                logger.Info(string.Format("**** {0} {1}: {2}", v.Oid.ToString(), SnmpConstants.GetTypeName(v.Value.Type), v.Value.ToString()));
+                                logger.Info($"**** {v.Oid.ToString()} {SnmpConstants.GetTypeName(v.Value.Type)}: {v.Value.ToString()}");
                             }
                             logger.Info("** End of SNMP Version 1 TRAP data.");
                         }
@@ -398,7 +407,7 @@ namespace AMS_Service
                             // Parse SNMP Version 2 TRAP packet
                             SnmpV2Packet pkt = new SnmpV2Packet();
                             pkt.decode(indata, inlen);
-                            logger.Info(string.Format("** SNMP Version 2 TRAP received from {0}:", inep.ToString()));
+                            logger.Info($"** SNMP Version 2 TRAP received from {inep.ToString()}");
                             if ((SnmpSharpNet.PduType)pkt.Pdu.Type != PduType.V2Trap &&
                                 ((SnmpSharpNet.PduType)pkt.Pdu.Type != PduType.Inform))
                             {
@@ -406,9 +415,9 @@ namespace AMS_Service
                             }
                             else
                             {
-                                logger.Info(string.Format("*** Community: {0}", pkt.Community.ToString()));
-                                logger.Info(string.Format("*** VarBind count: {0}", pkt.Pdu.VbList.Count));
-                                logger.Info(string.Format("*** VarBind content:"));
+                                logger.Info($"*** Community: {pkt.Community.ToString()}");
+                                logger.Info($"*** VarBind count: {pkt.Pdu.VbList.Count}");
+                                logger.Info($"*** VarBind content:");
 
                                 foreach (Vb v in pkt.Pdu.VbList)
                                 {
@@ -469,15 +478,15 @@ namespace AMS_Service
                                             snmp.TitanName = v.Value.ToString();
                                         }
                                     }
-                                    else
+                                    else // 타이탄 라이브가 아닐 때
                                     {
                                         string value = Snmp.GetNameFromOid(v.Oid.ToString());
-                                        logger.Info("GetNameFromOid value : " + value);
+                                        logger.Info($"GetNameFromOid value : {value}");
 
                                         if (value.LastIndexOf("Level") > 0)
                                         {
                                             snmp.LevelString = Snmp.GetLevelString(Convert.ToInt32(v.Value.ToString()), v.Oid.ToString());
-                                            logger.Info("LevelString : " + snmp.LevelString);
+                                            logger.Info($"LevelString : {snmp.LevelString}");
                                         }
                                         else if (value.LastIndexOf("Type") > 0)
                                         {
@@ -489,7 +498,7 @@ namespace AMS_Service
                                             snmp.TypeValue = Enum.GetName(typeof(Snmp.TrapType), Convert.ToInt32(v.Value.ToString()));
                                             snmp.Oid = v.Oid.ToString();
                                             snmp.IsTypeTrap = true;
-                                            logger.Info("TypeValue : " + snmp.TypeValue);
+                                            logger.Info($"TypeValue : {snmp.TypeValue}");
                                         }
                                         else if (value.LastIndexOf("Channel") > 0)
                                         {
@@ -503,7 +512,7 @@ namespace AMS_Service
                                         //데이터베이스 테이블을 만들기 위해 등록함(로그는 translate 테이블을 이용하자)
                                         snmp.RegisterSnmpInfo();
 
-                                        logger.Info(String.Format("[{0}] Trap : {1} {2}: {3}", inep.ToString().Split(':')[0], v.Oid.ToString(), SnmpConstants.GetTypeName(v.Value.Type), v.Value.ToString()));
+                                        logger.Info($"[{inep.ToString().Split(':')[0]}] Trap : {v.Oid.ToString()} {SnmpConstants.GetTypeName(v.Value.Type)}: {v.Value.ToString()}");
                                     }
                                 }
 
@@ -512,103 +521,30 @@ namespace AMS_Service
                                 {
                                     if (!String.IsNullOrEmpty(snmp.LevelString))
                                     {
-                                        Server s = null;
-                                        foreach (var server in NmsInfo.GetInstance().serverList)
+                                        if (!snmp.LevelString.Equals("Disabled"))
                                         {
-                                            if (server.Ip == snmp.IP)
-                                            {
-                                                s = server;
-                                                break;
-                                            }
-                                        }
-
-                                        if (s != null)
-                                        {
-                                            if (!snmp.LevelString.Equals("Disabled") && string.Equals(snmp.TypeValue, "begin"))
-                                            {
-                                                if (FindItemDuplicateTrap(NmsInfo.GetInstance().activeLog, s, snmp.Oid).Count == 0 ||
-                                                    FindItemDuplicateTitanTrap(NmsInfo.GetInstance().activeLog, s, snmp.TranslateValue).Count == 0)
-                                                {
-                                                    if (snmp.IsTypeTrap)
-                                                    {
-                                                        s.ErrorCount++;
-                                                    }
-                                                    s.Message = snmp.TranslateValue;
-
-                                                    LogItem log = new LogItem
-                                                    {
-                                                        Ip = s.Ip,
-                                                        Level = snmp.LevelString,
-                                                        Name = s.UnitName,
-                                                        Oid = snmp.Oid,
-                                                        IsConnection = true,
-                                                        Value = snmp.TranslateValue,
-                                                        TypeValue = "begin"
-                                                    };
-
-                                                    LoggingDisplay(log);
-                                                    snmp.event_id = LogItem.LoggingDatabase(snmp);
-                                                    /*
-                                                    ExternalApi.ChannelAI.CombinePostEvent(snmp, s);
-                                                    */
-                                                }
-                                            }
-                                            else if (!snmp.LevelString.Equals("Disabled") && string.Equals(snmp.TypeValue, "end"))
-                                            {
-                                                List<LogItem> activeItems;
-                                                if (!string.IsNullOrEmpty(snmp.Oid))
-                                                {
-                                                    activeItems = FindItemFromOid(NmsInfo.GetInstance().activeLog, s, snmp.Oid);
-                                                }
-                                                else
-                                                {
-                                                    activeItems = FindItemFromValue(NmsInfo.GetInstance().activeLog, s, snmp.TranslateValue);
-                                                }
-                                                if (activeItems.Count > 0)
-                                                {
-                                                    foreach (var item in activeItems)
-                                                    {
-                                                        if (s.ErrorCount > 0 && snmp.IsTypeTrap)
-                                                        {
-                                                            s.ErrorCount--;
-                                                        }
-                                                        LogItem restoreItem = FindCurrentStatusItem(NmsInfo.GetInstance().activeLog, s.Ip);
-                                                        if (restoreItem != null)
-                                                        {
-                                                            s.UpdateState = restoreItem.Level;
-                                                            s.Message = restoreItem.Value;
-                                                            if (s.ErrorCount == 0)
-                                                            {
-                                                                s.UpdateState = Server.EnumStatus.Normal.ToString();
-                                                            }
-                                                        }
-                                                        else
-                                                        {
-                                                            s.UpdateState = Server.EnumStatus.Normal.ToString();
-                                                        }
-                                                    }
-
-                                                    LoggingDisplay(activeItems);
-                                                    LogItem.LoggingDatabase(snmp);
-                                                }
-                                            }
-
+                                            logger.Info($"({snmp.IP}), ({snmp.LevelString}),  {snmp.TranslateValue}");
+                                            snmp.event_id = await LogManager.LoggingDatabase(snmp);
+                                            // 현재 Server State를 결정하는 지점
                                             if (!string.Equals(snmp.TypeValue, "log"))
                                             {
-                                                if (s.ErrorCount > 0)
+                                                Server s = new Server
                                                 {
-                                                    s.UpdateState = Server.CompareState(s.Status, snmp.LevelString);
-                                                }
-                                                else
+                                                    Ip = snmp.IP,
+                                                    Id = Server.GetServerID(snmp.IP),
+                                                    UpdateState = snmp.LevelString
+                                                };
+
+                                                if (ChannelAI.IsEnable)
                                                 {
-                                                    s.UpdateState = Server.EnumStatus.Normal.ToString();
+                                                    ExternalApi.ChannelAI.CombinePostEvent(snmp, s);
                                                 }
                                             }
                                         }
                                     }
                                 }
-                                logger.Info("** End of SNMP Version 2 TRAP data.");
                             }
+                            logger.Info("** End of SNMP Version 2 TRAP data.");
                         }
                     }
                     else
@@ -628,38 +564,25 @@ namespace AMS_Service
             logger.Info(" *** TrapListener exit ***");
         }
 
-        private void LoggingDisplay(LogItem log)
+        private List<LogManager> FindItemDuplicateTrap(List<LogManager> ocl, Server s, string oid)
         {
-            NmsInfo.GetInstance().activeLog.Insert(0, log);
-        }
-
-        private void LoggingDisplay(List<LogItem> activeLog)
-        {
-            foreach (var log in activeLog)
-            {
-                NmsInfo.GetInstance().activeLogRemove(log);
-            }
-        }
-
-        private List<LogItem> FindItemDuplicateTrap(List<LogItem> ocl, Server s, string oid)
-        {
-            IEnumerable<LogItem> items =
+            IEnumerable<LogManager> items =
                 from x in ocl
                 where x.Oid == oid && x.Ip == s.Ip && x.TypeValue == "begin"
                 select x;
             return items.ToList();
         }
 
-        private LogItem FindCurrentStatusItem(List<LogItem> ocl, string Ip)
+        private LogManager FindCurrentStatusItem(List<LogManager> ocl, string Ip)
         {
-            IEnumerable<LogItem> items =
+            IEnumerable<LogManager> items =
                 from x in ocl
                 where x.Ip == Ip
                 select x;
-            IEnumerable<LogItem> item = items.OrderByDescending(x => x.LevelPriority).Take(1);
+            IEnumerable<LogManager> item = items.OrderByDescending(x => x.LevelPriority).Take(1);
             if (item.Count() > 0)
             {
-                return (LogItem)item.ElementAt(0);
+                return (LogManager)item.ElementAt(0);
             }
             else
             {
@@ -667,27 +590,27 @@ namespace AMS_Service
             }
         }
 
-        private List<LogItem> FindItemDuplicateTitanTrap(List<LogItem> ocl, Server s, string value)
+        private List<LogManager> FindItemDuplicateTitanTrap(List<LogManager> ocl, Server s, string value)
         {
-            IEnumerable<LogItem> items =
+            IEnumerable<LogManager> items =
                 from x in ocl
                 where x.Value == value && x.Ip == s.Ip && x.TypeValue == "begin"
                 select x;
             return items.ToList();
         }
 
-        private List<LogItem> FindItemFromOid(List<LogItem> ocl, Server s, string oid)
+        private List<LogManager> FindItemFromOid(List<LogManager> ocl, Server s, string oid)
         {
-            IEnumerable<LogItem> items =
+            IEnumerable<LogManager> items =
                 from x in ocl
                 where x.Oid == oid && x.Ip == s.Ip && string.IsNullOrEmpty(x.EndAt)
                 select x;
             return items.ToList();
         }
 
-        private List<LogItem> FindItemFromValue(List<LogItem> ocl, Server s, string value)
+        private List<LogManager> FindItemFromValue(List<LogManager> ocl, Server s, string value)
         {
-            IEnumerable<LogItem> items =
+            IEnumerable<LogManager> items =
                 from x in ocl
                 where x.Value == value && x.Ip == s.Ip
                 select x;

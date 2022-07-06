@@ -19,6 +19,7 @@ namespace AMS_Service
         public string Id { get; set; }
         public string type { get; set; }
         public string IP { get; set; }
+
         public string Syntax { get; set; }
         public string Port { get; set; }
         public string Community { get; set; }
@@ -68,21 +69,6 @@ namespace AMS_Service
         {
             Main = 1,
             Backup = 2
-        }
-
-        public string MakeTrapLogString()
-        {
-            string logString = "";
-            if (Channel > 0)
-            {
-                logString = string.Format($"{TranslateValue} ({TypeValue}) (Channel : {Channel})");
-            }
-            else
-            {
-                //logString = string.Format($"{TranslateValue} ({TypeValue})");
-            }
-            logger.Info(string.Format($"logString : {logString}"));
-            return logString;
         }
 
         public static int GetSnmpPort()
@@ -146,7 +132,7 @@ AND T.is_visible = 'Y'");
                     string searchID = compareID.Substring(0, idx);
                     if (value.Contains(searchID))
                     {
-                        logger.Debug(string.Format($"value : {value}, searchID : {searchID}"));
+                        logger.Info(string.Format($"value : {value}, searchID : {searchID}"));
                         return false;
                     }
                 }
@@ -236,61 +222,20 @@ AND T.is_visible = 'Y'");
             }
         }
 
-        public Server GetServerInfo()
+        public async void RegisterSnmpInfo()
         {
-            Server server = null;
-            string query = string.Format($"SELECT * FROM server WHERE ip = '{this.IP}'");
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
             {
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                MySqlDataReader rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                {
-                    server = new Server
-                    {
-                        Id = rdr["id"].ToString(),
-                        Ip = rdr["ip"].ToString(),
-                        UnitName = rdr["name"].ToString(),
-                        Status = rdr["status"].ToString()
-                    };
-                }
-            }
-
-            return server;
-        }
-
-        public void RegisterSnmpInfo()
-        {
-            string query = String.Format(@"INSERT INTO snmp (id, ip, syntax, community, type) VALUES (@id, @ip, @syntax, @community, @type) ON DUPLICATE KEY UPDATE edit_time = CURRENT_TIMESTAMP(), ip = @ip, syntax = @syntax, community = @community, type = @type");
-            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
-            {
-                conn.Open();
+                string query = String.Format(@"INSERT INTO snmp (id, ip, syntax, community, type) VALUES (@id, @ip, @syntax, @community, @type) ON DUPLICATE KEY UPDATE edit_time = CURRENT_TIMESTAMP(), ip = @ip, syntax = @syntax, community = @community, type = @type");
+                await conn.OpenAsync();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
                 cmd.Parameters.AddWithValue("@id", this.Id);
                 cmd.Parameters.AddWithValue("@ip", this.IP);
                 cmd.Parameters.AddWithValue("@syntax", this.Syntax);
                 cmd.Parameters.AddWithValue("@community", this.Community);
                 cmd.Parameters.AddWithValue("@type", this.type);
-                //cmd.Prepare();
-                cmd.ExecuteNonQuery();
+                await cmd.ExecuteNonQueryAsync();
             }
-        }
-
-        public bool ConnectionCheck()
-        {
-            string query = string.Format($"SELECT * FROM log WHERE ip = '{this.IP}' AND oid = '{SnmpService._MyConnectionOid}' AND end_at is NULL");
-            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
-            {
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                MySqlDataReader rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                {
-                    return false;
-                }
-            }
-            return true;
         }
     }
 }

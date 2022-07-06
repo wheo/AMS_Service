@@ -16,6 +16,8 @@ namespace AMS_Service.Config
 
         public string ChannelAIHost { get; set; }
 
+        public bool EnableChannelAI { get; set; } = false;
+
         public String configFileName = "config.json";
 
         public static JsonConfig instance;

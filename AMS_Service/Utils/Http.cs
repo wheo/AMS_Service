@@ -20,7 +20,9 @@ namespace AMS_Service.Utils
             //Basic ' + Base64("Channel:AI");
             var stringContent = new StringContent(json.ToString());
             client.DefaultRequestHeaders.Add("Authorization", "Basic Q2hhbm5lbDpBSQ==");
-            var response = await client.PutAsync(ChannelAI.Host + uri, stringContent);
+            logger.Info(uri);
+            //logger.Info(json.ToString());
+            var response = await client.PutAsync($"{ChannelAI.Host}{uri}", stringContent);
             return response;
         }
 
@@ -30,10 +32,9 @@ namespace AMS_Service.Utils
             //Basic ' + Base64("Channel:AI");
             var stringContent = new StringContent(json.ToString());
             client.DefaultRequestHeaders.Add("Authorization", "Basic Q2hhbm5lbDpBSQ==");
-            uri = ChannelAI.Host + uri;
             logger.Info(uri);
-            logger.Info(json.ToString());
-            var response = await client.PostAsync(uri, stringContent);
+            //logger.Info(json.ToString());
+            var response = await client.PostAsync($"{ChannelAI.Host}{uri}", stringContent);
             return response;
         }
     }
