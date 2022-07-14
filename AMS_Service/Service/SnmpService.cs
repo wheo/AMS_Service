@@ -35,7 +35,7 @@ namespace AMS_Service.Service
         public static string _CM5000CurrentVersion_oid = "1.3.6.1.4.1.27338.4.4.1.0";
 
         public static int _timeout = 100;
-        public static int _retry = 3;
+        public static int _retry = 2;
 
         private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 

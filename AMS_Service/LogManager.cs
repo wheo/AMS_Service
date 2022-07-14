@@ -237,6 +237,58 @@ VALUES (@client_ip, @ip, @port, @id, @community, @level, @oid, @value, @snmp_typ
                         logger.Error("Neither record was written to database.");
                     }
                 }
+                else if (trap.TypeValue == "log")
+                {
+                    id = getGUID();
+                    await conn.OpenAsync();
+
+                    MySqlCommand cmd = conn.CreateCommand();
+                    MySqlTransaction trans;
+
+                    trans = conn.BeginTransaction();
+
+                    // Must assign both transaction object and connection
+                    // to Command object for a pending local transaction
+
+                    cmd.Connection = conn;
+                    cmd.Transaction = trans;
+
+                    try
+                    {
+                        cmd.CommandText = string.Format(@"INSERT INTO cuetone (id, ip, name, value)
+VALUES (@id, @ip, @name, @value)");
+                        cmd.Parameters.AddWithValue("@id", id);
+                        cmd.Parameters.AddWithValue("@ip", trap.IP);
+                        cmd.Parameters.AddWithValue("@name", Server.GetServerName(trap.IP));
+                        if (String.IsNullOrEmpty(trap.TrapString))
+                        {
+                            cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
+                        }
+                        else
+                        {
+                            cmd.Parameters.AddWithValue("@value", trap.TrapString);
+                        }
+                        await cmd.ExecuteNonQueryAsync();
+                        trans.Commit();
+                    }
+                    catch (Exception e)
+                    {
+                        logger.Error(e.ToString());
+                        try
+                        {
+                            trans.Rollback();
+                        }
+                        catch (MySqlException ex)
+                        {
+                            if (trans.Connection != null)
+                            {
+                                logger.Error("An exception of type " + ex.GetType() + " was encountered while attempting to roll back the transaction.");
+                            }
+                        }
+                        logger.Error("An exception of type " + e.GetType() + " was encountered while inserting the data.");
+                        logger.Error("Neither record was written to database.");
+                    }
+                }
             }
 
             return id;

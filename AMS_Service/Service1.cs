@@ -31,7 +31,7 @@ namespace AMS_Service
         private int _SnmpPort = 162;
         private int _PollingSec = 10;
         private int _SnmpGetTimeout = 100;
-        private int _SnmpRetryCount = 3;
+        private int _SnmpRetryCount = 2;
 
         private JsonConfig jsonConfig;
 

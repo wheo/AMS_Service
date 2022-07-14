@@ -286,6 +286,27 @@ namespace AMS_Service
             return id;
         }
 
+        public static string GetServerName(string ip)
+        {
+            string name = null;
+            if (!string.IsNullOrEmpty(ip))
+            {
+                using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
+                {
+                    string query = string.Format($"SELECT name from server WHERE ip = '{ip}'");
+                    conn.Open();
+                    MySqlCommand cmd = new MySqlCommand(query, conn);
+                    MySqlDataReader rdr = cmd.ExecuteReader();
+                    while (rdr.Read())
+                    {
+                        name = rdr["id"].ToString();
+                    }
+                    rdr.Close();
+                }
+            }
+            return name;
+        }
+
         public event PropertyChangedEventHandler PropertyChanged = delegate { };
 
         public void OnPropertyChanged(PropertyChangedEventArgs e)
