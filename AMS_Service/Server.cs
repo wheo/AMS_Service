@@ -289,20 +289,27 @@ namespace AMS_Service
         public static string GetServerName(string ip)
         {
             string name = null;
-            if (!string.IsNullOrEmpty(ip))
+            try
             {
-                using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
+                if (!string.IsNullOrEmpty(ip))
                 {
-                    string query = string.Format($"SELECT name from server WHERE ip = '{ip}'");
-                    conn.Open();
-                    MySqlCommand cmd = new MySqlCommand(query, conn);
-                    MySqlDataReader rdr = cmd.ExecuteReader();
-                    while (rdr.Read())
+                    using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
                     {
-                        name = rdr["id"].ToString();
+                        string query = string.Format($"SELECT name from server WHERE ip = '{ip}'");
+                        conn.Open();
+                        MySqlCommand cmd = new MySqlCommand(query, conn);
+                        MySqlDataReader rdr = cmd.ExecuteReader();
+                        while (rdr.Read())
+                        {
+                            name = rdr["name"].ToString();
+                        }
+                        rdr.Close();
                     }
-                    rdr.Close();
                 }
+            }
+            catch
+            {
+                name = "";
             }
             return name;
         }

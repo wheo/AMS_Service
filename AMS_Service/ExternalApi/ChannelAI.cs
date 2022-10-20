@@ -16,6 +16,8 @@ namespace AMS_Service.ExternalApi
         public static bool IsEnable { get; set; }
         public static string Host { get; set; }
 
+        public static string Ha_role { get; set; }
+
         private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
         public static string GetTimestamp()
@@ -62,13 +64,14 @@ namespace AMS_Service.ExternalApi
                 {
                     device_type = "Encoder";
                 }
+
                 if (snmp.TypeValue == "begin")
                 {
                     event_state = "Outstanding";
                     response = PostEvent(snmp.event_id, device_type, server.Id, server.UnitName, "162"
                         , "Service", "SERVICE_ID_01", "SERVICE_NAME_01"
                         , "Equipment Alarm", snmp.Api_msg, "A2", event_state
-                        , snmp.Level.ToString()
+                        , snmp.LevelString
                         , snmp.TranslateValue);
                 }
                 else if (snmp.TypeValue == "end")
@@ -166,32 +169,39 @@ namespace AMS_Service.ExternalApi
             return response.Result.Content.ReadAsStringAsync().Result;
         }
 
-        public static string Device(string device_type
-            , string device_id
-            , string host_name
-            , string mgmt_ip
-            , string firmware_ver
-            , string mnfc_name
-            , string vendor_name
-            , string ha_role)
+        public static string Device(List<Server> ss)
         {
             string system_name = GetSystemName();
             string timestamp = GetTimestamp();
+            string device_type = "ENCODER";
             string range = "FULL";
+            string mnfc_name = "ATEME";
+            string vendor_name = "GOUP";
+            string ha_role = Ha_role == "M" ? "101" : "102"; // 101 메인, 102 백업
 
             JObject o = new JObject();
+            JArray a = new JArray();
             o.Add("system_name", system_name);
-            o.Add("timestamp", timestamp);
+            // o.Add("timestamp", timestamp);
             o.Add("range", range);
             o.Add("device_type", device_type);
-            JObject devices = new JObject();
-            devices.Add("device_id", device_id);
-            devices.Add("host_name", host_name);
-            devices.Add("mgmt_ip", mgmt_ip);
-            devices.Add("firmware_ver", firmware_ver);
-            devices.Add("mnfc_name", mnfc_name);
-            devices.Add("vendor_name", vendor_name);
-            devices.Add("ha_role", ha_role);
+
+            foreach (Server s in ss)
+            {
+                JObject devices = new JObject();
+                devices.Add("device_id", s.Id);
+                devices.Add("host_name", s.UnitName);
+                devices.Add("mgmt_ip", s.Ip);
+                devices.Add("firmware_ver", string.IsNullOrEmpty(s.Version) == true ? "" : s.Version);
+                devices.Add("mnfc_name", mnfc_name);
+                devices.Add("vendor_name", vendor_name);
+                devices.Add("ha_role", ha_role);
+                a.Add(devices);
+            }
+            o.Add("devices", a);
+
+            logger.Info("-------------- device event --------------");
+            logger.Info($"{o.ToString(Formatting.Indented)}");
 
             var response = Utils.Http.PostAsync("/v1/devices", o);
             return response.Result.Content.ReadAsStringAsync().Result;
@@ -208,6 +218,11 @@ namespace AMS_Service.ExternalApi
             o.Add("hostname", hostname);
             o.Add("timestamp", timestamp);
             o.Add("devices", devices);
+            /*
+             * 로그를 매초 보내면 사이즈가 커서 보내는 로그를 저장하지 않음
+            logger.Info("-------------- device state --------------");
+            logger.Info($"{o.ToString(Formatting.Indented)}");
+            */
 
             var response = Utils.Http.PostAsync("/v1/devices/state", o);
             return response.Result.Content.ReadAsStringAsync().Result;

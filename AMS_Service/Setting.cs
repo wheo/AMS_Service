@@ -38,5 +38,42 @@ namespace AMS_Service
             }
             return isack;
         }
+
+        public static async void UpdateAckZero()
+        {
+            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
+            {
+                await conn.OpenAsync();
+                MySqlCommand cmd = conn.CreateCommand();
+                MySqlTransaction trans = conn.BeginTransaction();
+
+                cmd.Connection = conn;
+                cmd.Transaction = trans;
+
+                try
+                {
+                    cmd.CommandText = "UPDATE setting set v = '0' WHERE k = 'ack'";
+                    await cmd.ExecuteNonQueryAsync();
+                    trans.Commit();
+                }
+                catch (Exception e)
+                {
+                    logger.Error(e.ToString());
+                    try
+                    {
+                        trans.Rollback();
+                    }
+                    catch (MySqlException ex)
+                    {
+                        if (trans.Connection != null)
+                        {
+                            logger.Error("An exception of type " + ex.GetType() + " was encountered while attempting to roll back the transaction.");
+                        }
+                    }
+                    logger.Error("An exception of type " + e.GetType() + " was encountered while inserting the data.");
+                    logger.Error("Neither record was written to database.");
+                }
+            }
+        }
     }
 }

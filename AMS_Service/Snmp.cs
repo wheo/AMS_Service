@@ -16,7 +16,6 @@ namespace AMS_Service
 
         public string event_id { get; set; }
 
-        public string Id { get; set; }
         public string type { get; set; }
         public string IP { get; set; }
 
@@ -28,11 +27,13 @@ namespace AMS_Service
         public string Color { get; set; }
         public string TypeValue { get; set; }
         public string Oid { get; set; }
+
+        public string LogOid { get; set; }
         public bool Enable { get; set; }
         public string Desc { get; set; }
-        public int Channel { get; set; }
+        public int Channel { get; set; } = 0; // Default Channel is 0
         public int Index { get; set; }
-        public string Main { get; set; }
+        public int Main { get; set; } = 0; // Default is 0, 0 is Main, 1 is PIP
         public string TranslateValue { get; set; }
 
         public string Api_msg { get; set; }
@@ -67,8 +68,8 @@ namespace AMS_Service
 
         public enum EnumMain
         {
-            Main = 1,
-            Backup = 2
+            Main = 0,
+            Pip = 1
         }
 
         public static int GetSnmpPort()
@@ -112,7 +113,7 @@ namespace AMS_Service
             logger.Info(string.Format($"compareID : {compareID}"));
             if (string.IsNullOrEmpty(compareID))
             {
-                logger.Info($"compareID is null");
+                logger.Info($"compareID is null, invisible trap");
                 return false;
             }
             string value = null;
@@ -129,10 +130,10 @@ AND T.is_visible = 'Y'");
                 {
                     value = rdr["id"].ToString();
                     int idx = compareID.LastIndexOf('.');
-                    string searchID = compareID.Substring(0, idx);
-                    if (value.Contains(searchID))
+                    string searchID = compareID.Substring(0, idx) + ".3"; //Type은 .3으로 끝남
+                    if (value.Equals(searchID))
                     {
-                        logger.Info(string.Format($"value : {value}, searchID : {searchID}"));
+                        logger.Info($"disable oid : {value}, compareID : {searchID} is equal, invisible trap");
                         return false;
                     }
                 }
@@ -229,7 +230,7 @@ AND T.is_visible = 'Y'");
                 string query = String.Format(@"INSERT INTO snmp (id, ip, syntax, community, type) VALUES (@id, @ip, @syntax, @community, @type) ON DUPLICATE KEY UPDATE edit_time = CURRENT_TIMESTAMP(), ip = @ip, syntax = @syntax, community = @community, type = @type");
                 await conn.OpenAsync();
                 MySqlCommand cmd = new MySqlCommand(query, conn);
-                cmd.Parameters.AddWithValue("@id", this.Id);
+                cmd.Parameters.AddWithValue("@id", this.Oid);
                 cmd.Parameters.AddWithValue("@ip", this.IP);
                 cmd.Parameters.AddWithValue("@syntax", this.Syntax);
                 cmd.Parameters.AddWithValue("@community", this.Community);

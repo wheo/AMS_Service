@@ -105,10 +105,12 @@ namespace AMS_Service
 
                     try
                     {
-                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, level, value)
-VALUES (@id, @ip, @level, @value) ON DUPLICATE KEY UPDATE ip = @ip, level = @level, value = @value");
+                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, channel, main, level, value)
+VALUES (@id, @ip, @channel, @main, @level, @value) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, main = @main, level = @level, value = @value");
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
                         cmd.Parameters.AddWithValue("@id", id);
+                        cmd.Parameters.AddWithValue("@channel", trap.Channel);
+                        cmd.Parameters.AddWithValue("@main", trap.Main);
                         cmd.Parameters.AddWithValue("@level", trap.LevelString);
                         if (String.IsNullOrEmpty(trap.TrapString))
                         {
@@ -122,13 +124,15 @@ VALUES (@id, @ip, @level, @value) ON DUPLICATE KEY UPDATE ip = @ip, level = @lev
 
                         cmd.Parameters.Clear();
 
-                        cmd.CommandText = string.Format(@"INSERT INTO log (client_ip, ip, port, id, community, level, oid, value, snmp_type_value, name)
-VALUES (@client_ip, @ip, @port, @id, @community, @level, @oid, @value, @snmp_type_value, (SELECT name from server WHERE ip = @ip)) ON DUPLICATE KEY UPDATE ip = @ip, level = @level, value = @value");
+                        cmd.CommandText = string.Format(@"INSERT INTO log (client_ip, ip, port, id, community, channel, main, level, oid, value, snmp_type_value, name)
+VALUES (@client_ip, @ip, @port, @id, @community, @channel, @main, @level, @oid, @value, @snmp_type_value, (SELECT name from server WHERE ip = @ip)) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, main = @main, level = @level, value = @value");
                         cmd.Parameters.AddWithValue("@client_ip", trap._LocalIP);
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
                         cmd.Parameters.AddWithValue("@id", id);
                         cmd.Parameters.AddWithValue("@port", trap.Port);
                         cmd.Parameters.AddWithValue("@community", trap.Community);
+                        cmd.Parameters.AddWithValue("@channel", trap.Channel);
+                        cmd.Parameters.AddWithValue("@main", trap.Main);
                         cmd.Parameters.AddWithValue("@level", trap.LevelString);
                         cmd.Parameters.AddWithValue("@oid", trap.Oid);
                         if (String.IsNullOrEmpty(trap.TrapString))
@@ -165,6 +169,7 @@ VALUES (@client_ip, @ip, @port, @id, @community, @level, @oid, @value, @snmp_typ
                 else if (trap.TypeValue == "end")
                 {
                     await conn.OpenAsync();
+                    //logger.Debug($"({trap.TypeValue}) {trap.TranslateValue}, {trap.TrapString}");
 
                     MySqlCommand cmd = conn.CreateCommand();
                     MySqlTransaction trans;
@@ -179,8 +184,10 @@ VALUES (@client_ip, @ip, @port, @id, @community, @level, @oid, @value, @snmp_typ
 
                     try
                     {
-                        cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND value = @value");
+                        cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value LIMIT 1");
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
+                        cmd.Parameters.AddWithValue("@channel", trap.Channel);
+                        cmd.Parameters.AddWithValue("@main", trap.Main);
                         if (String.IsNullOrEmpty(trap.TrapString))
                         {
                             cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
@@ -193,18 +200,20 @@ VALUES (@client_ip, @ip, @port, @id, @community, @level, @oid, @value, @snmp_typ
 
                         cmd.Parameters.Clear();
 
-                        id = getEventID(trap.IP, trap.Oid);
+                        //id = getEventID(trap.IP, trap.Oid);
 
                         if (!string.IsNullOrEmpty(trap.Oid))
                         {
-                            cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND oid = @oid AND snmp_type_value = 'begin' ORDER BY start_at DESC LIMIT 1");
+                            cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND oid = @oid AND snmp_type_value = 'begin' AND channel = @channel AND main = @main AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
                         }
                         else
                         {
-                            cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND value = @value AND snmp_type_value = 'begin' ORDER BY start_at DESC LIMIT 1");
+                            cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND value = @value AND snmp_type_value = 'begin' AND channel = @channel AND main = @main AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
                         }
 
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
+                        cmd.Parameters.AddWithValue("@channel", trap.Channel);
+                        cmd.Parameters.AddWithValue("@main", trap.Main);
                         cmd.Parameters.AddWithValue("@oid", trap.Oid);
 
                         if (String.IsNullOrEmpty(trap.TrapString))
@@ -218,6 +227,7 @@ VALUES (@client_ip, @ip, @port, @id, @community, @level, @oid, @value, @snmp_typ
 
                         await cmd.ExecuteNonQueryAsync();
                         trans.Commit();
+                        // logger.Info($"{cmd.CommandText}, {trap.IP}, {trap.Channel}, {trap.Main}, {trap.Oid}, {trap.TranslateValue}, {trap.TrapString}");
                     }
                     catch (Exception e)
                     {
@@ -255,11 +265,14 @@ VALUES (@client_ip, @ip, @port, @id, @community, @level, @oid, @value, @snmp_typ
 
                     try
                     {
-                        cmd.CommandText = string.Format(@"INSERT INTO cuetone (id, ip, name, value)
-VALUES (@id, @ip, @name, @value)");
+                        cmd.CommandText = string.Format(@"INSERT INTO cuetone (id, ip, name, level, channel, main, value)
+VALUES (@id, @ip, @name, @level, @channel, @main, @value)");
                         cmd.Parameters.AddWithValue("@id", id);
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
                         cmd.Parameters.AddWithValue("@name", Server.GetServerName(trap.IP));
+                        cmd.Parameters.AddWithValue("@level", trap.LevelString);
+                        cmd.Parameters.AddWithValue("@channel", trap.Channel);
+                        cmd.Parameters.AddWithValue("@main", trap.Main);
                         if (String.IsNullOrEmpty(trap.TrapString))
                         {
                             cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
