@@ -37,6 +37,7 @@ namespace AMS_Service
         public string TranslateValue { get; set; }
 
         public string Api_msg { get; set; }
+        public string Event_type { get; set; }
         public bool IsTypeTrap { get; set; } = false;
         public string TrapString { get; set; }
         public string TitanUID { get; set; }
@@ -196,11 +197,12 @@ AND T.is_visible = 'Y'");
             return value;
         }
 
-        public static void GetTranslateValue(string name, out string translate, out string api_msg)
+        public static void GetTranslateValue(string name, out string translate, out string api_msg, out string event_type)
         {
             translate = "";
             api_msg = "";
-            string query = String.Format($"SELECT translate, api_msg FROM translate WHERE name = '{name}'");
+            event_type = "";
+            string query = String.Format($"SELECT translate, api_msg, event_type FROM translate WHERE name = '{name}'");
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
             {
                 conn.Open();
@@ -210,6 +212,7 @@ AND T.is_visible = 'Y'");
                 {
                     translate = rdr["translate"].ToString();
                     api_msg = rdr["api_msg"].ToString();
+                    event_type = rdr["event_type"].ToString();
                 }
                 rdr.Close();
             }
@@ -220,6 +223,10 @@ AND T.is_visible = 'Y'");
             if (api_msg == null)
             {
                 api_msg = "";
+            }
+            if (event_type == null)
+            {
+                event_type = "";
             }
         }
 

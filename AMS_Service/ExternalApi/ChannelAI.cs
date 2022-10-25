@@ -69,8 +69,8 @@ namespace AMS_Service.ExternalApi
                 {
                     event_state = "Outstanding";
                     response = PostEvent(snmp.event_id, device_type, server.Id, server.UnitName, "162"
-                        , "Service", "SERVICE_ID_01", "SERVICE_NAME_01"
-                        , "Equipment Alarm", snmp.Api_msg, "A2", event_state
+                        , "Channel", server.Ip, server.UnitName
+                        , snmp.Event_type, snmp.Api_msg, snmp.TranslateValue, event_state
                         , snmp.LevelString
                         , snmp.TranslateValue);
                 }

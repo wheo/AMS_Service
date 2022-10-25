@@ -571,9 +571,11 @@ namespace AMS_Service
                                         {
                                             string TranslateValue = "";
                                             string Api_msg = "";
-                                            Snmp.GetTranslateValue(value, out TranslateValue, out Api_msg);
+                                            string EventType = "";
+                                            Snmp.GetTranslateValue(value, out TranslateValue, out Api_msg, out EventType);
                                             snmp.TranslateValue = TranslateValue;
                                             snmp.Api_msg = Api_msg;
+                                            snmp.Event_type = EventType;
                                             snmp.TypeValue = Enum.GetName(typeof(Snmp.TrapType), Convert.ToInt32(v.Value.ToString()));
                                             //snmp.Oid = v.Oid.ToString();
                                             snmp.LogOid = v.Oid.ToString();
@@ -611,6 +613,7 @@ namespace AMS_Service
                                             {
                                                 Ip = snmp.IP,
                                                 Id = Server.GetServerID(snmp.IP),
+                                                UnitName = Server.GetServerName(snmp.IP),
                                                 UpdateState = snmp.LevelString
                                             };
 
