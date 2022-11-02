@@ -54,6 +54,7 @@ namespace AMS_Service
         private bool LoadConfig()
         {
             // config.json 읽기
+            System.IO.Directory.SetCurrentDirectory(System.AppDomain.CurrentDomain.BaseDirectory);
             logger.Info(Directory.GetCurrentDirectory());
             String jsonString;
             try
