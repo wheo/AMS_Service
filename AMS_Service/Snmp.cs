@@ -32,6 +32,8 @@ namespace AMS_Service
         public bool Enable { get; set; }
         public string Desc { get; set; }
         public int Channel { get; set; } = 0; // Default Channel is 0
+
+        public string ChannelValue { get; set; }
         public int Index { get; set; }
         public int Main { get; set; } = 0; // Default is 0, 0 is Main, 1 is PIP
         public string TranslateValue { get; set; }

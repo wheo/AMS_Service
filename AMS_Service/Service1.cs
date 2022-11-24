@@ -513,6 +513,7 @@ namespace AMS_Service
                                         else if (TitanLiveTrapType == "11")
                                         {
                                             snmp.TitanName = v.Value.ToString();
+                                            snmp.ChannelValue = v.Value.ToString();
                                         }
                                     }
                                     else if (snmp.Oid.Contains(SencoreMRD4400Oid))

@@ -105,13 +105,14 @@ namespace AMS_Service
 
                     try
                     {
-                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, channel, main, level, value)
-VALUES (@id, @ip, @channel, @main, @level, @value) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, main = @main, level = @level, value = @value");
+                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, channel, channel_value, main, level, value)
+VALUES (@id, @ip, @channel, @channel_value, @main, @level, @value) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, main = @main, level = @level, value = @value");
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
                         cmd.Parameters.AddWithValue("@id", id);
                         cmd.Parameters.AddWithValue("@channel", trap.Channel);
                         cmd.Parameters.AddWithValue("@main", trap.Main);
                         cmd.Parameters.AddWithValue("@level", trap.LevelString);
+                        cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
                         if (String.IsNullOrEmpty(trap.TrapString))
                         {
                             cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
@@ -124,14 +125,15 @@ VALUES (@id, @ip, @channel, @main, @level, @value) ON DUPLICATE KEY UPDATE ip = 
 
                         cmd.Parameters.Clear();
 
-                        cmd.CommandText = string.Format(@"INSERT INTO log (client_ip, ip, port, id, community, channel, main, level, oid, value, snmp_type_value, name)
-VALUES (@client_ip, @ip, @port, @id, @community, @channel, @main, @level, @oid, @value, @snmp_type_value, (SELECT name from server WHERE ip = @ip)) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, main = @main, level = @level, value = @value");
+                        cmd.CommandText = string.Format(@"INSERT INTO log (client_ip, ip, port, id, community, channel, channel_value, main, level, oid, value, snmp_type_value, name)
+VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main, @level, @oid, @value, @snmp_type_value, (SELECT name from server WHERE ip = @ip)) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, channel_value = @channel_value, main = @main, level = @level, value = @value");
                         cmd.Parameters.AddWithValue("@client_ip", trap._LocalIP);
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
                         cmd.Parameters.AddWithValue("@id", id);
                         cmd.Parameters.AddWithValue("@port", trap.Port);
                         cmd.Parameters.AddWithValue("@community", trap.Community);
                         cmd.Parameters.AddWithValue("@channel", trap.Channel);
+                        cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
                         cmd.Parameters.AddWithValue("@main", trap.Main);
                         cmd.Parameters.AddWithValue("@level", trap.LevelString);
                         cmd.Parameters.AddWithValue("@oid", trap.Oid);
@@ -184,10 +186,19 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @main, @level, @oid, 
 
                     try
                     {
-                        cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value LIMIT 1");
+                        if (!string.IsNullOrEmpty(trap.ChannelValue))
+                        {
+                            cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND channel_value = @channel_value AND value = @value LIMIT 1");
+                            cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
+                        }
+                        else
+                        {
+                            cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value LIMIT 1");
+                            cmd.Parameters.AddWithValue("@main", trap.Main);
+                            cmd.Parameters.AddWithValue("@channel", trap.Channel);
+                        }
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
-                        cmd.Parameters.AddWithValue("@channel", trap.Channel);
-                        cmd.Parameters.AddWithValue("@main", trap.Main);
+
                         if (String.IsNullOrEmpty(trap.TrapString))
                         {
                             cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
@@ -204,16 +215,34 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @main, @level, @oid, 
 
                         if (!string.IsNullOrEmpty(trap.Oid))
                         {
-                            cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND oid = @oid AND snmp_type_value = 'begin' AND channel = @channel AND main = @main AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
+                            if (!string.IsNullOrEmpty(trap.ChannelValue))
+                            {
+                                cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND oid = @oid AND snmp_type_value = 'begin' AND channel = @channel AND main = @main AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
+                                cmd.Parameters.AddWithValue("@channel", trap.Channel);
+                                cmd.Parameters.AddWithValue("@main", trap.Main);
+                            }
+                            else
+                            {
+                                cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND oid = @oid AND snmp_type_value = 'begin' AND channel_value = @channel_value AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
+                                cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
+                            }
                         }
                         else
                         {
-                            cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND value = @value AND snmp_type_value = 'begin' AND channel = @channel AND main = @main AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
+                            if (!string.IsNullOrEmpty(trap.ChannelValue))
+                            {
+                                cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND value = @value AND snmp_type_value = 'begin' AND channel = @channel AND main = @main AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
+                                cmd.Parameters.AddWithValue("@channel", trap.Channel);
+                                cmd.Parameters.AddWithValue("@main", trap.Main);
+                            }
+                            else
+                            {
+                                cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND value = @value AND snmp_type_value = 'begin' AND channel_value = @channel_value AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
+                                cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
+                            }
                         }
 
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
-                        cmd.Parameters.AddWithValue("@channel", trap.Channel);
-                        cmd.Parameters.AddWithValue("@main", trap.Main);
                         cmd.Parameters.AddWithValue("@oid", trap.Oid);
 
                         if (String.IsNullOrEmpty(trap.TrapString))
