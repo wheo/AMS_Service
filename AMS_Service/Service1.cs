@@ -600,6 +600,16 @@ namespace AMS_Service
                                     }
                                 }
 
+                                /*
+                                 * LGHV 요구사항에 따른 예외 (추후 삭제 될 수 있음)
+                                 */
+
+                                if (snmp.Oid.Contains(TitanLiveAlarmOid) && snmp.TranslateValue == "Service State Is Stopped")
+                                {
+                                    //Service State Is Stopped의 경우 trap type을 null에서 begin 으로 임시 변경
+                                    snmp.TypeValue = "begin";
+                                }
+
                                 //CM, DR 기록
                                 if (Snmp.IsEnableTrap(snmp.Oid) || snmp.Oid.Contains(TitanLiveAlarmOid) || snmp.Oid.Contains(SencoreMRD4400Oid))
                                 {

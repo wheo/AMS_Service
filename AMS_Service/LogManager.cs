@@ -188,12 +188,12 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
                     {
                         if (!string.IsNullOrEmpty(trap.ChannelValue))
                         {
-                            cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND channel_value = @channel_value AND value = @value LIMIT 1");
+                            cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND channel_value = @channel_value AND value = @value");
                             cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
                         }
                         else
                         {
-                            cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value LIMIT 1");
+                            cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value");
                             cmd.Parameters.AddWithValue("@main", trap.Main);
                             cmd.Parameters.AddWithValue("@channel", trap.Channel);
                         }
