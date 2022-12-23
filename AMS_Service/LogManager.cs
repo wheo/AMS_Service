@@ -64,25 +64,7 @@ namespace AMS_Service
             return g.ToString();
         }
 
-        public static string getEventID(string ip, string oid)
-        {
-            string id = null;
-            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
-            {
-                string query = string.Format($"SELECT id FROM log WHERE ip = '{ip}' AND oid = '{oid}' AND snmp_type_value = 'begin' ORDER BY start_at DESC LIMIT 1");
-                conn.Open();
-                MySqlCommand cmd = new MySqlCommand(query, conn);
-                MySqlDataReader rdr = cmd.ExecuteReader();
-                while (rdr.Read())
-                {
-                    id = rdr["id"].ToString();
-                }
-                rdr.Close();
-            }
-            return id;
-        }
-
-        public static async Task<string> LoggingDatabase(Snmp trap)
+        public static async Task LoggingDatabase(Snmp trap)
         {
             string id = null;
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
@@ -90,6 +72,7 @@ namespace AMS_Service
                 if (trap.TypeValue == "begin")
                 {
                     id = getGUID();
+                    trap.event_id = id;
                     await conn.OpenAsync();
 
                     MySqlCommand cmd = conn.CreateCommand();
@@ -188,12 +171,12 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
                     {
                         if (!string.IsNullOrEmpty(trap.ChannelValue))
                         {
-                            cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND channel_value = @channel_value AND value = @value");
+                            cmd.CommandText = string.Format($"SELECT * FROM active WHERE ip = @ip AND channel_value = @channel_value AND value = @value");
                             cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
                         }
                         else
                         {
-                            cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value");
+                            cmd.CommandText = string.Format(@"SELECT * FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value");
                             cmd.Parameters.AddWithValue("@main", trap.Main);
                             cmd.Parameters.AddWithValue("@channel", trap.Channel);
                         }
@@ -207,11 +190,24 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
                         {
                             cmd.Parameters.AddWithValue("@value", trap.TrapString);
                         }
-                        await cmd.ExecuteNonQueryAsync();
+
+                        MySqlDataReader rdr = cmd.ExecuteReader();
+                        while (rdr.Read())
+                        {
+                            trap.event_id = rdr["id"].ToString();
+                        }
+                        rdr.Close();
 
                         cmd.Parameters.Clear();
 
-                        //id = getEventID(trap.IP, trap.Oid);
+                        logger.Debug($"({trap.TypeValue}) event id : {trap.event_id}");
+
+                        cmd.CommandText = string.Format(@"DELETE FROM active WHERE id = @id");
+                        cmd.Parameters.AddWithValue("@id", trap.event_id);
+
+                        await cmd.ExecuteNonQueryAsync();
+
+                        cmd.Parameters.Clear();
 
                         if (!string.IsNullOrEmpty(trap.Oid))
                         {
@@ -279,6 +275,7 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
                 else if (trap.TypeValue == "log")
                 {
                     id = getGUID();
+                    trap.event_id = id;
                     await conn.OpenAsync();
 
                     MySqlCommand cmd = conn.CreateCommand();
@@ -332,8 +329,6 @@ VALUES (@id, @ip, @name, @level, @channel, @main, @value)");
                     }
                 }
             }
-
-            return id;
         }
     }
 }

@@ -148,7 +148,7 @@ namespace AMS_Service
                         snmp.LevelString = Server.EnumStatus.Critical.ToString();
                         snmp.TypeValue = "end";
                         snmp.TranslateValue = "Failed to connection";
-                        snmp.event_id = await LogManager.LoggingDatabase(snmp);
+                        await LogManager.LoggingDatabase(snmp);
                     }
                 }
                 server.IsConnect = Server.EnumIsConnect.Connect;
@@ -167,7 +167,7 @@ namespace AMS_Service
                         snmp.LevelString = Server.EnumStatus.Critical.ToString();
                         snmp.TypeValue = "begin";
                         snmp.TranslateValue = "Failed to connection";
-                        snmp.event_id = await LogManager.LoggingDatabase(snmp);
+                        await LogManager.LoggingDatabase(snmp);
                     }
                 }
                 server.IsConnect = Server.EnumIsConnect.Disconnect;
@@ -609,14 +609,20 @@ namespace AMS_Service
                                     //Service State Is Stopped의 경우 trap type을 null에서 begin 으로 임시 변경
                                     snmp.TypeValue = "begin";
                                 }
+                                else if (snmp.Oid.Contains(TitanLiveAlarmOid) && snmp.TranslateValue == "Service State Is Encoding")
+                                {
+                                    //Service State Is Encoding의 경우 trap type을 null에서 end 으로 임시 변경
+                                    snmp.TypeValue = "end";
+                                    snmp.TranslateValue = "Service State Is Stopped";
+                                }
 
                                 //CM, DR 기록
                                 if (Snmp.IsEnableTrap(snmp.Oid) || snmp.Oid.Contains(TitanLiveAlarmOid) || snmp.Oid.Contains(SencoreMRD4400Oid))
                                 {
                                     if (!String.IsNullOrEmpty(snmp.LevelString) & !"Disabled".Equals(snmp.LevelString))
                                     {
-                                        snmp.event_id = await LogManager.LoggingDatabase(snmp);
-                                        logger.Info($"trap info : ({snmp.IP})[{snmp.Channel}, {snmp.Main}], ({snmp.TypeValue}), ({snmp.LevelString}), {snmp.TranslateValue}");
+                                        await LogManager.LoggingDatabase(snmp);
+                                        logger.Info($"trap info : ({snmp.IP})[{snmp.Channel}, {snmp.Main}, {snmp.ChannelValue}], ({snmp.TypeValue}), ({snmp.LevelString}), {snmp.TranslateValue}");
 
                                         // 현재 Server State를 결정하는 지점
                                         if (!string.Equals(snmp.TypeValue, "log"))

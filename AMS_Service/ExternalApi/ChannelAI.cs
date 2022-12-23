@@ -69,8 +69,13 @@ namespace AMS_Service.ExternalApi
                 {
                     event_state = "Outstanding";
                     response = PostEvent(snmp.event_id, device_type, server.Id, server.UnitName, "162"
-                        , "Channel", server.Ip, server.UnitName
-                        , snmp.Event_type, snmp.Api_msg, snmp.TranslateValue, event_state
+                        , "Channel"
+                        , server.Ip
+                        , server.UnitName
+                        , snmp.Event_type
+                        , snmp.Api_msg
+                        , snmp.TranslateValue
+                        , event_state
                         , snmp.LevelString
                         , snmp.TranslateValue);
                 }
@@ -120,11 +125,19 @@ namespace AMS_Service.ExternalApi
             o.Add("severity", severity);
             o.Add("timestamp", timestamp);
             o.Add("message", message);
-            var response = Utils.Http.PostAsync("/v1/event", o);
-            logger.Info("-------------- post event --------------");
-            logger.Info($"{o.ToString(Formatting.Indented)}");
+            if (!string.IsNullOrEmpty(probable_cause) && !string.IsNullOrEmpty(specific_problem))
+            {
+                var response = Utils.Http.PostAsync("/v1/event", o);
+                logger.Info("-------------- post event --------------");
+                logger.Info($"{o.ToString(Formatting.Indented)}");
 
-            return response.Result.Content.ReadAsStringAsync().Result;
+                return response.Result.Content.ReadAsStringAsync().Result;
+            }
+            else
+            {
+                logger.Info($"probable_cause and specific_problem is null");
+                return null;
+            }
         }
 
         private static string PutEvent(string event_id, string device_id, string event_state, string reason)
