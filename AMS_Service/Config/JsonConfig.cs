@@ -18,6 +18,8 @@ namespace AMS_Service.Config
 
         public bool EnableChannelAI { get; set; } = false;
 
+        public int timeout { get; set; } = 3;
+
         public string ha_role { get; set; } = "M";
 
         public String configFileName = "config.json";

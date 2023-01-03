@@ -18,6 +18,7 @@ namespace AMS_Service.Utils
         {
             HttpClient client = new HttpClient();
             //Basic ' + Base64("Channel:AI");
+            client.Timeout = TimeSpan.FromSeconds(Service1._HttpTimeout);
             var stringContent = new StringContent(json.ToString());
             client.DefaultRequestHeaders.Add("Authorization", "Basic Q2hhbm5lbDpBSQ==");
             logger.Info(uri);
@@ -29,6 +30,7 @@ namespace AMS_Service.Utils
         public static async Task<HttpResponseMessage> PostAsync(string uri, JObject json)
         {
             HttpClient client = new HttpClient();
+            client.Timeout = TimeSpan.FromSeconds(Service1._HttpTimeout);
             //Basic ' + Base64("Channel:AI");
             var stringContent = new StringContent(json.ToString());
             client.DefaultRequestHeaders.Add("Authorization", "Basic Q2hhbm5lbDpBSQ==");

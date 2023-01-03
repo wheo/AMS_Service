@@ -33,6 +33,6 @@ using System.Runtime.InteropServices;
 // 기본값으로 할 수 있습니다.
 // [assembly: AssemblyVersion("1.0.*")]
 [assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.2")]
 //log4net 설정 추가 by wheo
 [assembly: log4net.Config.XmlConfigurator(ConfigFile = "log4net.config")]

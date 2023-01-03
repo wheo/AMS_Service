@@ -209,46 +209,10 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
 
                         cmd.Parameters.Clear();
 
-                        if (!string.IsNullOrEmpty(trap.Oid))
-                        {
-                            if (!string.IsNullOrEmpty(trap.ChannelValue))
-                            {
-                                cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND oid = @oid AND snmp_type_value = 'begin' AND channel = @channel AND main = @main AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
-                                cmd.Parameters.AddWithValue("@channel", trap.Channel);
-                                cmd.Parameters.AddWithValue("@main", trap.Main);
-                            }
-                            else
-                            {
-                                cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND oid = @oid AND snmp_type_value = 'begin' AND channel_value = @channel_value AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
-                                cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
-                            }
-                        }
-                        else
-                        {
-                            if (!string.IsNullOrEmpty(trap.ChannelValue))
-                            {
-                                cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND value = @value AND snmp_type_value = 'begin' AND channel = @channel AND main = @main AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
-                                cmd.Parameters.AddWithValue("@channel", trap.Channel);
-                                cmd.Parameters.AddWithValue("@main", trap.Main);
-                            }
-                            else
-                            {
-                                cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE ip = @ip AND value = @value AND snmp_type_value = 'begin' AND channel_value = @channel_value AND end_at is NULL ORDER BY start_at DESC LIMIT 1");
-                                cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
-                            }
-                        }
+                        cmd.CommandText = string.Format(@"UPDATE log set end_at = current_timestamp() WHERE id = @id");
+                        cmd.Parameters.AddWithValue("@id", trap.event_id);
 
-                        cmd.Parameters.AddWithValue("@ip", trap.IP);
-                        cmd.Parameters.AddWithValue("@oid", trap.Oid);
-
-                        if (String.IsNullOrEmpty(trap.TrapString))
-                        {
-                            cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
-                        }
-                        else
-                        {
-                            cmd.Parameters.AddWithValue("@value", trap.TrapString);
-                        }
+                        logger.Info($"log end_at : {trap.event_id}");
 
                         await cmd.ExecuteNonQueryAsync();
                         trans.Commit();

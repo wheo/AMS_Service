@@ -35,6 +35,7 @@ namespace AMS_Service
         private int _SnmpRetryCount = 3;
         private int _SnmpTrapWaitingTime = 10;
         private string _Ha_role = "M";
+        public static int _HttpTimeout = 3;
 
         private JsonConfig jsonConfig;
 
@@ -86,12 +87,15 @@ namespace AMS_Service
                 ChannelAI.Host = jsonConfig.ChannelAIHost;
                 ChannelAI.IsEnable = jsonConfig.EnableChannelAI;
                 ChannelAI.Ha_role = jsonConfig.ha_role;
+                ChannelAI.timeout = jsonConfig.timeout;
                 logger.Info($"ChannelAI.Host : {ChannelAI.Host}");
                 logger.Info($"Enable ChannelAI : {ChannelAI.IsEnable}");
                 logger.Info($"ha_role : {_Ha_role}");
+                logger.Info($"http timeout : {ChannelAI.timeout}");
 
                 _SnmpPort = Snmp.GetSnmpPort();
                 _PollingSec = Snmp.GetPollingSec();
+                _HttpTimeout = ChannelAI.timeout;
 
                 m_get_delay = new TimeSpan(0, 0, 0, _PollingSec, 0);
                 m_trap_delay = new TimeSpan(0, 0, 0, 0, _SnmpTrapWaitingTime);
@@ -148,6 +152,8 @@ namespace AMS_Service
                         snmp.LevelString = Server.EnumStatus.Critical.ToString();
                         snmp.TypeValue = "end";
                         snmp.TranslateValue = "Failed to connection";
+                        snmp.Main = 0;
+                        snmp.Channel = 0;
                         await LogManager.LoggingDatabase(snmp);
                     }
                 }
@@ -167,6 +173,8 @@ namespace AMS_Service
                         snmp.LevelString = Server.EnumStatus.Critical.ToString();
                         snmp.TypeValue = "begin";
                         snmp.TranslateValue = "Failed to connection";
+                        snmp.Main = 0;
+                        snmp.Channel = 0;
                         await LogManager.LoggingDatabase(snmp);
                     }
                 }
@@ -177,23 +185,30 @@ namespace AMS_Service
             JObject o = new JObject();
             if (ChannelAI.IsEnable)
             {
-                o.Add("device_id", server.Id);
-                o.Add("status", server.Status);
-                //10d 7h 51m 0s 520ms to second
-                string[] uptime;
-                if (!string.IsNullOrEmpty(server.Uptime))
+                try
                 {
-                    uptime = server.Uptime.Split(' ');
-                    int day = Convert.ToInt32(uptime[0].Substring(0, uptime[0].Length - 1));
-                    int hour = Convert.ToInt32(uptime[1].Substring(0, uptime[1].Length - 1));
-                    int min = Convert.ToInt32(uptime[2].Substring(0, uptime[2].Length - 1));
-                    int sec = Convert.ToInt32(uptime[3].Substring(0, uptime[3].Length - 1));
-                    Int64 uptime_sec = day * 86400 + hour * 3600 + min * 60 + sec;
-                    o.Add("sys_uptime", uptime_sec);
+                    o.Add("device_id", server.Id);
+                    o.Add("status", server.Status);
+                    //10d 7h 51m 0s 520ms to second
+                    string[] uptime;
+                    if (!string.IsNullOrEmpty(server.Uptime))
+                    {
+                        uptime = server.Uptime.Split(' ');
+                        int day = Convert.ToInt32(uptime[0].Substring(0, uptime[0].Length - 1));
+                        int hour = Convert.ToInt32(uptime[1].Substring(0, uptime[1].Length - 1));
+                        int min = Convert.ToInt32(uptime[2].Substring(0, uptime[2].Length - 1));
+                        int sec = Convert.ToInt32(uptime[3].Substring(0, uptime[3].Length - 1));
+                        Int64 uptime_sec = day * 86400 + hour * 3600 + min * 60 + sec;
+                        o.Add("sys_uptime", uptime_sec);
+                    }
+                    else
+                    {
+                        o.Add("sys_uptime", 0);
+                    }
                 }
-                else
+                catch (Exception e)
                 {
-                    o.Add("sys_uptime", 0);
+                    logger.Error(e.ToString());
                 }
             }
             // logger.Info($"[{server.Ip}] Get 끝");
@@ -265,9 +280,16 @@ namespace AMS_Service
                         _DeviceReport = 0;
                         if (ChannelAI.IsEnable)
                         {
-                            // 채널 AI status
-                            string response = ExternalApi.ChannelAI.Device(newServers);
-                            logger.Info("api response : " + response);
+                            try
+                            {
+                                // 채널 AI status
+                                string response = ExternalApi.ChannelAI.Device(newServers);
+                                logger.Info("api response : " + response);
+                            }
+                            catch (Exception e)
+                            {
+                                logger.Error(e.ToString());
+                            }
                         }
                     }
 
@@ -301,9 +323,16 @@ namespace AMS_Service
 
                     if (ChannelAI.IsEnable)
                     {
-                        // 채널 AI status
-                        string response = ExternalApi.ChannelAI.DeviceState(j);
-                        logger.Info("api response : " + response);
+                        try
+                        {
+                            // 채널 AI status
+                            string response = ExternalApi.ChannelAI.DeviceState(j);
+                            logger.Info("api response : " + response);
+                        }
+                        catch (Exception e)
+                        {
+                            logger.Error(e.ToString());
+                        }
                     }
 
                     // ack check
@@ -317,7 +346,14 @@ namespace AMS_Service
                             // update and channelAI api call
                             if (ChannelAI.IsEnable)
                             {
-                                ChannelAI.AckAlarmEvent(alarm);
+                                try
+                                {
+                                    ChannelAI.AckAlarmEvent(alarm);
+                                }
+                                catch (Exception e)
+                                {
+                                    logger.Error(e.ToString());
+                                }
                             }
                         }
                         Setting.UpdateAckZero();
@@ -637,7 +673,14 @@ namespace AMS_Service
 
                                             if (ChannelAI.IsEnable)
                                             {
-                                                ExternalApi.ChannelAI.CombinePostEvent(snmp, s);
+                                                try
+                                                {
+                                                    ExternalApi.ChannelAI.CombinePostEvent(snmp, s);
+                                                }
+                                                catch (Exception e)
+                                                {
+                                                    logger.Error(e.ToString());
+                                                }
                                             }
                                         }
                                     }

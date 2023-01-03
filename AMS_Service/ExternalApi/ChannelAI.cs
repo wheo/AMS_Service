@@ -18,6 +18,8 @@ namespace AMS_Service.ExternalApi
 
         public static string Ha_role { get; set; }
 
+        public static int timeout { get; set; }
+
         private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
         public static string GetTimestamp()
