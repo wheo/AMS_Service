@@ -66,13 +66,22 @@ namespace AMS_Service
 
         public static async Task LoggingDatabase(Snmp trap)
         {
-            string id = null;
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
             {
                 if (trap.TypeValue == "begin")
                 {
-                    id = getGUID();
-                    trap.event_id = id;
+                    if (string.IsNullOrEmpty(trap.event_id))
+                    {
+                        if (!string.IsNullOrEmpty(trap.TitanUID))
+                        {
+                            trap.event_id = trap.TitanUID;
+                        }
+                        else
+                        {
+                            trap.event_id = getGUID();
+                        }
+                    }
+
                     await conn.OpenAsync();
 
                     MySqlCommand cmd = conn.CreateCommand();
@@ -88,14 +97,15 @@ namespace AMS_Service
 
                     try
                     {
-                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, channel, channel_value, main, level, value)
-VALUES (@id, @ip, @channel, @channel_value, @main, @level, @value) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, main = @main, level = @level, value = @value");
+                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, channel, channel_value, main, level, value, _desc)
+VALUES (@id, @ip, @channel, @channel_value, @main, @level, @value, @desc) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, main = @main, level = @level, value = @value, _desc = @desc");
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
-                        cmd.Parameters.AddWithValue("@id", id);
+                        cmd.Parameters.AddWithValue("@id", trap.event_id);
                         cmd.Parameters.AddWithValue("@channel", trap.Channel);
                         cmd.Parameters.AddWithValue("@main", trap.Main);
                         cmd.Parameters.AddWithValue("@level", trap.LevelString);
                         cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
+                        cmd.Parameters.AddWithValue("@desc", trap.Desc);
                         if (String.IsNullOrEmpty(trap.TrapString))
                         {
                             cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
@@ -108,11 +118,11 @@ VALUES (@id, @ip, @channel, @channel_value, @main, @level, @value) ON DUPLICATE 
 
                         cmd.Parameters.Clear();
 
-                        cmd.CommandText = string.Format(@"INSERT INTO log (client_ip, ip, port, id, community, channel, channel_value, main, level, oid, value, snmp_type_value, name)
-VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main, @level, @oid, @value, @snmp_type_value, (SELECT name from server WHERE ip = @ip)) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, channel_value = @channel_value, main = @main, level = @level, value = @value");
+                        cmd.CommandText = string.Format(@"INSERT INTO log (client_ip, ip, port, id, community, channel, channel_value, main, level, oid, value, snmp_type_value, name, _desc)
+VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main, @level, @oid, @value, @snmp_type_value, (SELECT name from server WHERE ip = @ip), @desc) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, channel_value = @channel_value, main = @main, level = @level, value = @value, _desc = @desc");
                         cmd.Parameters.AddWithValue("@client_ip", trap._LocalIP);
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
-                        cmd.Parameters.AddWithValue("@id", id);
+                        cmd.Parameters.AddWithValue("@id", trap.event_id);
                         cmd.Parameters.AddWithValue("@port", trap.Port);
                         cmd.Parameters.AddWithValue("@community", trap.Community);
                         cmd.Parameters.AddWithValue("@channel", trap.Channel);
@@ -120,6 +130,7 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
                         cmd.Parameters.AddWithValue("@main", trap.Main);
                         cmd.Parameters.AddWithValue("@level", trap.LevelString);
                         cmd.Parameters.AddWithValue("@oid", trap.Oid);
+                        cmd.Parameters.AddWithValue("@desc", trap.Desc);
                         if (String.IsNullOrEmpty(trap.TrapString))
                         {
                             cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
@@ -169,38 +180,45 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
 
                     try
                     {
-                        if (!string.IsNullOrEmpty(trap.ChannelValue))
+                        if (!string.IsNullOrEmpty(trap.TitanUID))
                         {
-                            cmd.CommandText = string.Format($"SELECT * FROM active WHERE ip = @ip AND channel_value = @channel_value AND value = @value");
-                            cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
+                            trap.event_id = trap.TitanUID;
                         }
                         else
                         {
-                            cmd.CommandText = string.Format(@"SELECT * FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value");
-                            cmd.Parameters.AddWithValue("@main", trap.Main);
-                            cmd.Parameters.AddWithValue("@channel", trap.Channel);
-                        }
-                        cmd.Parameters.AddWithValue("@ip", trap.IP);
+                            if (!string.IsNullOrEmpty(trap.ChannelValue))
+                            {
+                                cmd.CommandText = string.Format($"SELECT * FROM active WHERE ip = @ip AND channel_value = @channel_value AND value = @value");
+                                cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
+                            }
+                            else
+                            {
+                                cmd.CommandText = string.Format(@"SELECT * FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value");
+                                cmd.Parameters.AddWithValue("@main", trap.Main);
+                                cmd.Parameters.AddWithValue("@channel", trap.Channel);
+                            }
+                            cmd.Parameters.AddWithValue("@ip", trap.IP);
 
-                        if (String.IsNullOrEmpty(trap.TrapString))
-                        {
-                            cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
-                        }
-                        else
-                        {
-                            cmd.Parameters.AddWithValue("@value", trap.TrapString);
+                            if (String.IsNullOrEmpty(trap.TrapString))
+                            {
+                                cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
+                            }
+                            else
+                            {
+                                cmd.Parameters.AddWithValue("@value", trap.TrapString);
+                            }
+
+                            MySqlDataReader rdr = cmd.ExecuteReader();
+                            while (rdr.Read())
+                            {
+                                trap.event_id = rdr["id"].ToString();
+                            }
+                            rdr.Close();
+
+                            cmd.Parameters.Clear();
                         }
 
-                        MySqlDataReader rdr = cmd.ExecuteReader();
-                        while (rdr.Read())
-                        {
-                            trap.event_id = rdr["id"].ToString();
-                        }
-                        rdr.Close();
-
-                        cmd.Parameters.Clear();
-
-                        logger.Debug($"({trap.TypeValue}) event id : {trap.event_id}");
+                        logger.Debug($"({trap.TypeValue}) event id : {trap.event_id}, titanUID : {trap.TitanUID}");
 
                         cmd.CommandText = string.Format(@"DELETE FROM active WHERE id = @id");
                         cmd.Parameters.AddWithValue("@id", trap.event_id);
@@ -238,8 +256,18 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
                 }
                 else if (trap.TypeValue == "log")
                 {
-                    id = getGUID();
-                    trap.event_id = id;
+                    if (string.IsNullOrEmpty(trap.event_id))
+                    {
+                        if (!string.IsNullOrEmpty(trap.TitanUID))
+                        {
+                            trap.event_id = trap.TitanUID;
+                        }
+                        else
+                        {
+                            trap.event_id = getGUID();
+                        }
+                    }
+
                     await conn.OpenAsync();
 
                     MySqlCommand cmd = conn.CreateCommand();
@@ -255,14 +283,15 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
 
                     try
                     {
-                        cmd.CommandText = string.Format(@"INSERT INTO cuetone (id, ip, name, level, channel, main, value)
-VALUES (@id, @ip, @name, @level, @channel, @main, @value)");
-                        cmd.Parameters.AddWithValue("@id", id);
+                        cmd.CommandText = string.Format(@"INSERT INTO cuetone (id, ip, name, level, channel, main, value, _desc)
+VALUES (@id, @ip, @name, @level, @channel, @main, @value, @desc)");
+                        cmd.Parameters.AddWithValue("@id", trap.event_id);
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
                         cmd.Parameters.AddWithValue("@name", Server.GetServerName(trap.IP));
                         cmd.Parameters.AddWithValue("@level", trap.LevelString);
                         cmd.Parameters.AddWithValue("@channel", trap.Channel);
                         cmd.Parameters.AddWithValue("@main", trap.Main);
+                        cmd.Parameters.AddWithValue("@desc", trap.Desc);
                         if (String.IsNullOrEmpty(trap.TrapString))
                         {
                             cmd.Parameters.AddWithValue("@value", trap.TranslateValue);

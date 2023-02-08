@@ -542,6 +542,10 @@ namespace AMS_Service
                                             snmp.LogOid = snmp.Oid;
                                             snmp.IsTypeTrap = true;
                                         }
+                                        else if (TitanLiveTrapType == "5")
+                                        {
+                                            snmp.Desc = v.Value.ToString();
+                                        }
                                         else if (TitanLiveTrapType == "8")
                                         {
                                             snmp.TitanUID = v.Value.ToString();
