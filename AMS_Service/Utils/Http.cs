@@ -39,5 +39,15 @@ namespace AMS_Service.Utils
             var response = await client.PostAsync($"{ChannelAI.Host}{uri}", stringContent);
             return response;
         }
+
+        public static async Task<HttpResponseMessage> GetAsync(string uri)
+        {
+            using (var httpClient = new HttpClient())
+            {
+                httpClient.Timeout = TimeSpan.FromSeconds(Service1._HttpTimeout);
+                var response = await httpClient.GetAsync(uri);
+                return response;
+            }
+        }
     }
 }

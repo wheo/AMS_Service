@@ -35,15 +35,25 @@ namespace AMS_Service
         private int _SnmpRetryCount = 3;
         private int _SnmpTrapWaitingTime = 10;
         private string _Ha_role = "M";
-        public static int _HttpTimeout = 3;
+        public static int _HttpTimeout = 10;
+
+        public static string _Api_ip;
+        public static int _Api_port;
 
         private JsonConfig jsonConfig;
 
         protected Thread m_threadSnmpGet;
         protected Thread m_threadSnmpTrap;
+        protected Thread m_threadWorker;
         protected ManualResetEvent m_shutdownEvent;
         protected TimeSpan m_get_delay;
+        protected TimeSpan m_worker_delay;
         protected TimeSpan m_trap_delay;
+
+        private CancellationTokenSource _cts;
+        private OldMessages _oldMessages;
+
+        private Queue<LogSyncJob> _jobQueue;
 
         private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
@@ -67,9 +77,12 @@ namespace AMS_Service
                     //default value
                     jsonConfig.ip = "127.0.0.1";
                     jsonConfig.port = 3306;
-                    jsonConfig.id = "tnmtech";
+                    jsonConfig.id = "root";
                     jsonConfig.pw = "tnmtech";
                     jsonConfig.DatabaseName = "TNM_NMS";
+
+                    jsonConfig.api_ip = "127.0.0.1";
+                    jsonConfig.api_port = 80;
 
                     jsonConfig.ChannelAIHost = "http://61.78.151.69:8081";
                     jsonConfig.EnableChannelAI = false;
@@ -88,10 +101,18 @@ namespace AMS_Service
                 ChannelAI.IsEnable = jsonConfig.EnableChannelAI;
                 ChannelAI.Ha_role = jsonConfig.ha_role;
                 ChannelAI.timeout = jsonConfig.timeout;
+                _Api_ip = jsonConfig.api_ip;
+                _Api_port = jsonConfig.api_port;
+
                 logger.Info($"ChannelAI.Host : {ChannelAI.Host}");
                 logger.Info($"Enable ChannelAI : {ChannelAI.IsEnable}");
                 logger.Info($"ha_role : {_Ha_role}");
                 logger.Info($"http timeout : {ChannelAI.timeout}");
+
+                logger.Info($"API IP : {_Api_ip}");
+                logger.Info($"API Port : {_Api_port}");
+
+                logger.Info($"{jsonConfig.ip}, {jsonConfig.port}, {jsonConfig.id}, {jsonConfig.pw}, {jsonConfig.DatabaseName}");
 
                 _SnmpPort = Snmp.GetSnmpPort();
                 _PollingSec = Snmp.GetPollingSec();
@@ -99,6 +120,10 @@ namespace AMS_Service
 
                 m_get_delay = new TimeSpan(0, 0, 0, _PollingSec, 0);
                 m_trap_delay = new TimeSpan(0, 0, 0, 0, _SnmpTrapWaitingTime);
+                m_worker_delay = new TimeSpan(0, 0, 0, 1, 0); // worker 1 sec
+
+                _jobQueue = new Queue<LogSyncJob>();
+
                 logger.Info($"SnmpPort : {_SnmpPort}");
                 logger.Info($"Polling Sec : {_PollingSec}");
                 logger.Info($"Snmp Get Timeout  : {_SnmpGetTimeout}");
@@ -118,12 +143,106 @@ namespace AMS_Service
             LoadConfig();
             ThreadStart tsGet = new ThreadStart(this.SnmpGetServiceAsync);
             ThreadStart tsTrap = new ThreadStart(this.TrapListenerAsync);
+            ThreadStart tsApiWorker = new ThreadStart(this.ApiWorker);
             m_shutdownEvent = new ManualResetEvent(false);
             m_threadSnmpGet = new Thread(tsGet);
             m_threadSnmpTrap = new Thread(tsTrap);
+            m_threadWorker = new Thread(tsApiWorker);
             m_threadSnmpGet.Start();
             m_threadSnmpTrap.Start();
+            m_threadWorker.Start();
+
+            _cts = new CancellationTokenSource();
+            _oldMessages = new OldMessages();
             base.OnStart(args);
+        }
+
+        private async void ApiWorker()
+        {
+            logger.Info("Api Worker Start...");
+
+            bool signal = false;
+
+            while (true)
+            {
+                try
+                {
+                    signal = m_shutdownEvent.WaitOne(m_worker_delay, true);
+                    if (signal)
+                    {
+                        logger.Info($"signal TERM in while");
+                        break;
+                    }
+                    logger.Info($"Worker is alive ... ({_jobQueue.Count})");
+
+                    if (_jobQueue.Count > 0)
+                    {
+                        LogSyncJob job = _jobQueue.Dequeue();
+
+                        logger.Info($"rest of queue count : {_jobQueue.Count()}");
+
+                        if (job.isReboot)
+                        {
+                            await Task.Delay(30000); // 재부팅 동기화 시간 30 sec
+                        }
+                        else
+                        {
+                            await Task.Delay(1000);
+                        }
+                        string uri = $"http://{_Api_ip}:{_Api_port}/api/v1/log/sync/{job.target_ip}";
+                        logger.Info(uri);
+                        var response = Utils.Http.GetAsync(uri);
+                        string content = await response.Result.Content.ReadAsStringAsync();
+                        if (!string.IsNullOrEmpty(content))
+                        {
+                            List<TitanMessage> titanmsgs = JsonConvert.DeserializeObject<List<TitanMessage>>(content);
+                            List<TitanActiveAlarm> alarms = new List<TitanActiveAlarm>();
+
+                            foreach (var msg in titanmsgs)
+                            {
+                                foreach (var state in msg.state)
+                                {
+                                    if (string.IsNullOrEmpty(state.Level))
+                                    {
+                                        if (state.Name.Contains("Service State Is Invalid") || state.Name.Contains("Service State Is Stopped"))
+                                        {
+                                            state.Level = "Critical";
+                                        }
+                                        else
+                                        {
+                                            state.Level = "Information";
+                                        }
+                                    }
+
+                                    // logger.Info($"*** API Info *** {snmp.IP}, {msg.name}, {state.Level}, {state.Name}, {state.Description}");
+                                    TitanActiveAlarm alarm = new TitanActiveAlarm
+                                    {
+                                        TitanUID = job.TitanUID,
+                                        ChannelName = msg.name,
+                                        Level = state.Level,
+                                        Value = state.Name,
+                                        Desc = state.Description
+                                    };
+                                    alarms.Add(alarm);
+                                }
+                            }
+                            // 동기화
+                            await LogManager.ActiveAlarm(job.target_ip, alarms);
+
+                            if (job.isReboot)
+                                logger.Info($"({job.target_ip}) Reboot found");
+                        }
+                        else
+                        {
+                            logger.Info("Titan Api Msg is empty");
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    logger.Error(e.ToString());
+                }
+            }
         }
 
         private async Task<JObject> ServerTask(Server server, Server oldServer)
@@ -145,6 +264,7 @@ namespace AMS_Service
                 {
                     if (oldServer.IsConnect == Server.EnumIsConnect.Disconnect)
                     {
+                        logger.Info($"{snmp.IP} is Reconnected");
                         snmp.IP = server.Ip;
                         snmp.Port = "65535";
                         snmp.Community = "public";
@@ -155,6 +275,9 @@ namespace AMS_Service
                         snmp.Main = 0;
                         snmp.Channel = 0;
                         await LogManager.LoggingDatabase(snmp);
+
+                        LogSyncJob job = new LogSyncJob { target_ip = snmp.IP, isReboot = true, TitanUID = "" };
+                        _jobQueue.Enqueue(job);
                     }
                 }
                 server.IsConnect = Server.EnumIsConnect.Connect;
@@ -241,7 +364,7 @@ namespace AMS_Service
                 logger.Error($"{e.ToString()}");
                 firstServers = Server.GetServerList();
             }
-            logger.Info($"*** 서비스 로드 후 최초 서버 정보 ***");
+            logger.Info($"*** Service is loaded ***");
             foreach (Server s in firstServers)
             {
                 logger.Info($"{s.Ip}, {s.UnitName}, InitConnect : {s.IsConnect}");
@@ -644,6 +767,7 @@ namespace AMS_Service
                                  * LGHV 요구사항에 따른 예외 (추후 삭제 될 수 있음)
                                  */
 
+                                /*
                                 if (snmp.Oid.Contains(TitanLiveAlarmOid) && snmp.TranslateValue == "Service State Is Stopped")
                                 {
                                     //Service State Is Stopped의 경우 trap type을 null에서 begin 으로 임시 변경
@@ -655,14 +779,80 @@ namespace AMS_Service
                                     snmp.TypeValue = "end";
                                     snmp.TranslateValue = "Service State Is Stopped";
                                 }
+                                */
 
                                 //CM, DR 기록
                                 if (Snmp.IsEnableTrap(snmp.Oid) || snmp.Oid.Contains(TitanLiveAlarmOid) || snmp.Oid.Contains(SencoreMRD4400Oid))
                                 {
                                     if (!String.IsNullOrEmpty(snmp.LevelString) & !"Disabled".Equals(snmp.LevelString))
                                     {
-                                        await LogManager.LoggingDatabase(snmp);
                                         logger.Info($"trap info : ({snmp.IP})[{snmp.Channel}, {snmp.Main}, {snmp.ChannelValue}], ({snmp.TypeValue}), ({snmp.LevelString}), {snmp.TranslateValue}");
+
+                                        ThreadPool.SetMinThreads(50, 100);
+                                        // 타이탄일 경우 api 알람 동기화
+                                        if (snmp.Oid.Contains(TitanLiveAlarmOid))
+                                        {
+                                            string content = null;
+                                            bool isContentEqual = false;
+                                            try
+                                            {
+                                                string uri = $"http://{_Api_ip}:{_Api_port}/api/v1/log/sync/{snmp.IP}";
+                                                logger.Info($"{uri}, {snmp.ChannelValue}, {snmp.TranslateValue}");
+                                                var response = Utils.Http.GetAsync(uri);
+
+                                                content = await response.Result.Content.ReadAsStringAsync();
+                                                logger.Info($"response : {content}");
+
+                                                if (!string.IsNullOrEmpty(content))
+                                                {
+                                                    try
+                                                    {
+                                                        if (_oldMessages.messageList != null && _oldMessages.messageList.Count > 0)
+                                                        {
+                                                            var getOldItem = _oldMessages.messageList.FirstOrDefault(item => item.ip.Equals(snmp.IP));
+                                                            //logger.Info($"({snmp.IP}) {content}");
+                                                            string oldContent = getOldItem.responseContent;
+                                                            //logger.Info($"({snmp.IP}) {oldContent}");
+
+                                                            isContentEqual = content.Equals(oldContent);
+
+                                                            logger.Info($"{snmp.IP} old content compare to new content is {isContentEqual.ToString()}");
+                                                            if (!isContentEqual)
+                                                            {
+                                                                LogSyncJob job = new LogSyncJob { isReboot = false, target_ip = snmp.IP, TitanUID = snmp.TitanUID };
+                                                                _jobQueue.Enqueue(job);
+                                                            }
+                                                        }
+                                                    }
+                                                    catch (Exception e)
+                                                    {
+                                                        logger.Error(e.ToString());
+                                                    }
+
+                                                    try
+                                                    {
+                                                        TitanMessageList messageList = new TitanMessageList();
+                                                        messageList.ip = snmp.IP;
+                                                        messageList.responseContent = content;
+
+                                                        _oldMessages.messageList.RemoveAll(item => item.ip.Equals(snmp.IP));
+                                                        _oldMessages.messageList.Add(messageList);
+                                                    }
+                                                    catch (Exception e)
+                                                    {
+                                                        logger.Error(e.ToString());
+                                                    }
+                                                }
+                                            }
+                                            catch (Exception e)
+                                            {
+                                                logger.Error(e.ToString());
+                                            }
+                                        }
+                                        else
+                                        {
+                                            await LogManager.LoggingDatabase(snmp);
+                                        }
 
                                         // 현재 Server State를 결정하는 지점
                                         if (!string.Equals(snmp.TypeValue, "log"))

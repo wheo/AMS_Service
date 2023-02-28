@@ -14,6 +14,9 @@ namespace AMS_Service.Config
         public String pw { get; set; }
         public String DatabaseName { get; set; }
 
+        public String api_ip { get; set; }
+        public int api_port { get; set; }
+
         public string ChannelAIHost { get; set; }
 
         public bool EnableChannelAI { get; set; } = false;

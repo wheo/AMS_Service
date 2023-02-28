@@ -64,23 +64,64 @@ namespace AMS_Service
             return g.ToString();
         }
 
+        public static async Task ActiveAlarm(string Ip, List<TitanActiveAlarm> alarms)
+        {
+            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
+            {
+                await conn.OpenAsync();
+
+                MySqlCommand cmd = conn.CreateCommand();
+                MySqlTransaction trans;
+
+                trans = conn.BeginTransaction();
+
+                // Must assign both transaction object and connection
+                // to Command object for a pending local transaction
+
+                cmd.Connection = conn;
+                cmd.Transaction = trans;
+
+                try
+                {
+                    cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip");
+                    cmd.Parameters.AddWithValue("@ip", Ip);
+
+                    await cmd.ExecuteNonQueryAsync();
+
+                    cmd.Parameters.Clear();
+
+                    foreach (var alarm in alarms)
+                    {
+                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, channel_value, level, value, _desc, titan_uid)
+VALUES (@id, @ip, @channel_value, @level, @value, @desc, @titan_uid)");
+                        cmd.Parameters.AddWithValue("@ip", Ip);
+                        cmd.Parameters.AddWithValue("@id", alarm.Id);
+                        cmd.Parameters.AddWithValue("@level", alarm.Level);
+                        cmd.Parameters.AddWithValue("@channel_value", alarm.ChannelName);
+                        cmd.Parameters.AddWithValue("@desc", alarm.Desc);
+                        cmd.Parameters.AddWithValue("@titan_uid", alarm.TitanUID);
+                        cmd.Parameters.AddWithValue("@value", alarm.Value);
+                        await cmd.ExecuteNonQueryAsync();
+
+                        cmd.Parameters.Clear();
+                    }
+                    trans.Commit();
+                    logger.Info($"({Ip}) Alarm Commit");
+                }
+                catch (Exception e)
+                {
+                    logger.Error(e.ToString());
+                }
+            }
+        }
+
         public static async Task LoggingDatabase(Snmp trap)
         {
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
             {
                 if (trap.TypeValue == "begin")
                 {
-                    if (string.IsNullOrEmpty(trap.event_id))
-                    {
-                        if (!string.IsNullOrEmpty(trap.TitanUID))
-                        {
-                            trap.event_id = trap.TitanUID;
-                        }
-                        else
-                        {
-                            trap.event_id = getGUID();
-                        }
-                    }
+                    trap.event_id = getGUID();
 
                     await conn.OpenAsync();
 
@@ -97,8 +138,8 @@ namespace AMS_Service
 
                     try
                     {
-                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, channel, channel_value, main, level, value, _desc)
-VALUES (@id, @ip, @channel, @channel_value, @main, @level, @value, @desc) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, main = @main, level = @level, value = @value, _desc = @desc");
+                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, channel, channel_value, main, level, value, _desc, titan_uid)
+VALUES (@id, @ip, @channel, @channel_value, @main, @level, @value, @desc, @titan_uid) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, main = @main, level = @level, value = @value, _desc = @desc, titan_uid = @titan_uid");
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
                         cmd.Parameters.AddWithValue("@id", trap.event_id);
                         cmd.Parameters.AddWithValue("@channel", trap.Channel);
@@ -106,6 +147,7 @@ VALUES (@id, @ip, @channel, @channel_value, @main, @level, @value, @desc) ON DUP
                         cmd.Parameters.AddWithValue("@level", trap.LevelString);
                         cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
                         cmd.Parameters.AddWithValue("@desc", trap.Desc);
+                        cmd.Parameters.AddWithValue("@titan_uid", trap.TitanUID);
                         if (String.IsNullOrEmpty(trap.TrapString))
                         {
                             cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
@@ -118,8 +160,8 @@ VALUES (@id, @ip, @channel, @channel_value, @main, @level, @value, @desc) ON DUP
 
                         cmd.Parameters.Clear();
 
-                        cmd.CommandText = string.Format(@"INSERT INTO log (client_ip, ip, port, id, community, channel, channel_value, main, level, oid, value, snmp_type_value, name, _desc)
-VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main, @level, @oid, @value, @snmp_type_value, (SELECT name from server WHERE ip = @ip), @desc) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, channel_value = @channel_value, main = @main, level = @level, value = @value, _desc = @desc");
+                        cmd.CommandText = string.Format(@"INSERT INTO log (client_ip, ip, port, id, community, channel, channel_value, main, level, oid, value, snmp_type_value, name, _desc, titan_uid)
+VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main, @level, @oid, @value, @snmp_type_value, (SELECT name from server WHERE ip = @ip), @desc, @titan_uid) ON DUPLICATE KEY UPDATE ip = @ip, channel = @channel, channel_value = @channel_value, main = @main, level = @level, value = @value, _desc = @desc, titan_uid = @titan_uid");
                         cmd.Parameters.AddWithValue("@client_ip", trap._LocalIP);
                         cmd.Parameters.AddWithValue("@ip", trap.IP);
                         cmd.Parameters.AddWithValue("@id", trap.event_id);
@@ -131,6 +173,7 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
                         cmd.Parameters.AddWithValue("@level", trap.LevelString);
                         cmd.Parameters.AddWithValue("@oid", trap.Oid);
                         cmd.Parameters.AddWithValue("@desc", trap.Desc);
+                        cmd.Parameters.AddWithValue("@titan_uid", trap.TitanUID);
                         if (String.IsNullOrEmpty(trap.TrapString))
                         {
                             cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
@@ -182,41 +225,34 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
                     {
                         if (!string.IsNullOrEmpty(trap.TitanUID))
                         {
-                            trap.event_id = trap.TitanUID;
+                            cmd.CommandText = string.Format($"SELECT * FROM active WHERE ip = @ip AND titan_uid = @titan_uid AND value = @value");
+                            cmd.Parameters.AddWithValue("@titan_uid", trap.TitanUID);
                         }
                         else
                         {
-                            if (!string.IsNullOrEmpty(trap.ChannelValue))
-                            {
-                                cmd.CommandText = string.Format($"SELECT * FROM active WHERE ip = @ip AND channel_value = @channel_value AND value = @value");
-                                cmd.Parameters.AddWithValue("@channel_value", trap.ChannelValue);
-                            }
-                            else
-                            {
-                                cmd.CommandText = string.Format(@"SELECT * FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value");
-                                cmd.Parameters.AddWithValue("@main", trap.Main);
-                                cmd.Parameters.AddWithValue("@channel", trap.Channel);
-                            }
-                            cmd.Parameters.AddWithValue("@ip", trap.IP);
-
-                            if (String.IsNullOrEmpty(trap.TrapString))
-                            {
-                                cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
-                            }
-                            else
-                            {
-                                cmd.Parameters.AddWithValue("@value", trap.TrapString);
-                            }
-
-                            MySqlDataReader rdr = cmd.ExecuteReader();
-                            while (rdr.Read())
-                            {
-                                trap.event_id = rdr["id"].ToString();
-                            }
-                            rdr.Close();
-
-                            cmd.Parameters.Clear();
+                            cmd.CommandText = string.Format(@"SELECT * FROM active WHERE ip = @ip AND channel = @channel AND main = @main AND value = @value");
+                            cmd.Parameters.AddWithValue("@main", trap.Main);
+                            cmd.Parameters.AddWithValue("@channel", trap.Channel);
                         }
+                        cmd.Parameters.AddWithValue("@ip", trap.IP);
+
+                        if (String.IsNullOrEmpty(trap.TrapString))
+                        {
+                            cmd.Parameters.AddWithValue("@value", trap.TranslateValue);
+                        }
+                        else
+                        {
+                            cmd.Parameters.AddWithValue("@value", trap.TrapString);
+                        }
+
+                        MySqlDataReader rdr = cmd.ExecuteReader();
+                        while (rdr.Read())
+                        {
+                            trap.event_id = rdr["id"].ToString();
+                        }
+                        rdr.Close();
+
+                        cmd.Parameters.Clear();
 
                         logger.Debug($"({trap.TypeValue}) event id : {trap.event_id}, titanUID : {trap.TitanUID}");
 
