@@ -16,7 +16,6 @@ namespace AMS_Service
         public string Ip { get; set; }
         public string Level { get; set; }
         public string Value { get; set; }
-
         public string IsAck { get; set; }
 
         private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
