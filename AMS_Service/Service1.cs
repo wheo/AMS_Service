@@ -45,6 +45,9 @@ namespace AMS_Service
         protected Thread m_threadSnmpGet;
         protected Thread m_threadSnmpTrap;
         protected Thread m_threadWorker;
+
+        protected Thread m_threadDuplicateCheckWorker;
+
         protected ManualResetEvent m_shutdownEvent;
         protected TimeSpan m_get_delay;
         protected TimeSpan m_worker_delay;
@@ -146,17 +149,90 @@ namespace AMS_Service
             //ThreadStart tsTrap = new ThreadStart(this.TrapListenerAsync);
             ThreadStart tsApiWorker = new ThreadStart(this.ApiWorker);
 
+            ThreadStart tsApiDuplicateCheckWorker = new ThreadStart(this.ApiDuplicateCheckWorker);
+
             m_threadSnmpGet = new Thread(tsGet);
             //m_threadSnmpTrap = new Thread(tsTrap);
             m_threadWorker = new Thread(tsApiWorker);
+
+            m_threadDuplicateCheckWorker = new Thread(tsApiDuplicateCheckWorker);
+
             m_threadSnmpGet.Start();
             //m_threadSnmpTrap.Start();
             m_threadWorker.Start();
+
+            m_threadDuplicateCheckWorker.Start();
 
             _cts = new CancellationTokenSource();
             _oldMessages = new OldMessages();
 
             base.OnStart(args);
+        }
+
+        private List<DuplicateCheckActiveAlarm> oldDupCheckAlarms = new List<DuplicateCheckActiveAlarm>();
+
+        private async void ApiDuplicateCheckWorker()
+        {
+            logger.Info("Api Duplicate Check Worker Start...");
+
+            bool signal = false;
+
+            while (true)
+            {
+                try
+                {
+                    signal = m_shutdownEvent.WaitOne(m_worker_delay, true);
+                    if (signal)
+                    {
+                        logger.Info($"signal TERM in while");
+                        break;
+                    }
+
+                    string uri = $"http://{_Api_ip}:{_Api_port}/api/v2/servicesmngt/services/state/errorcheck";
+                    var response = Utils.Http.GetAsync(uri);
+                    string content = await response.Result.Content.ReadAsStringAsync();
+                    if (!string.IsNullOrEmpty(content))
+                    {
+                        List<DuplicateCheckMessage> duplicateMsgs = JsonConvert.DeserializeObject<List<DuplicateCheckMessage>>(content);
+                        List<DuplicateCheckActiveAlarm> alarms = new List<DuplicateCheckActiveAlarm>();
+
+                        foreach (var msg in duplicateMsgs)
+                        {
+                            // logger.Info($"{msg.level}, {msg.state}, {msg.name}");
+
+                            DuplicateCheckActiveAlarm alarm = new DuplicateCheckActiveAlarm
+                            {
+                                Level = msg.level,
+                                State = msg.state,
+                                Ip = msg.ip,
+                                ChannelValue = msg.channel_value
+                            };
+                            alarms.Add(alarm);
+                        }
+
+                        // 데이터베이스 안정성을 위해 세마포어 공유
+                        await _semaphore.WaitAsync();
+                        try
+                        {
+                            await LogManager.ActiveDupCheckAlarm(alarms, oldDupCheckAlarms);
+                            oldDupCheckAlarms = alarms;
+                        }
+                        catch (Exception e)
+                        {
+                            logger.Error(e.ToString());
+                        }
+                        finally
+                        {
+                            _semaphore.Release();
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    logger.Error(e.ToString());
+                }
+            }
+            logger.Info(" *** Api Duplicate Check Worker exit ***");
         }
 
         private async void ApiWorker()
@@ -879,64 +955,12 @@ namespace AMS_Service
 
         #endregion trap deprecated
 
-        private List<LogManager> FindItemDuplicateTrap(List<LogManager> ocl, Server s, string oid)
-        {
-            IEnumerable<LogManager> items =
-                from x in ocl
-                where x.Oid == oid && x.Ip == s.Ip && x.TypeValue == "begin"
-                select x;
-            return items.ToList();
-        }
-
-        private LogManager FindCurrentStatusItem(List<LogManager> ocl, string Ip)
-        {
-            IEnumerable<LogManager> items =
-                from x in ocl
-                where x.Ip == Ip
-                select x;
-            IEnumerable<LogManager> item = items.OrderByDescending(x => x.LevelPriority).Take(1);
-            if (item.Count() > 0)
-            {
-                return (LogManager)item.ElementAt(0);
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        private List<LogManager> FindItemDuplicateTitanTrap(List<LogManager> ocl, Server s, string value)
-        {
-            IEnumerable<LogManager> items =
-                from x in ocl
-                where x.Value == value && x.Ip == s.Ip && x.TypeValue == "begin"
-                select x;
-            return items.ToList();
-        }
-
-        private List<LogManager> FindItemFromOid(List<LogManager> ocl, Server s, string oid)
-        {
-            IEnumerable<LogManager> items =
-                from x in ocl
-                where x.Oid == oid && x.Ip == s.Ip && string.IsNullOrEmpty(x.EndAt)
-                select x;
-            return items.ToList();
-        }
-
-        private List<LogManager> FindItemFromValue(List<LogManager> ocl, Server s, string value)
-        {
-            IEnumerable<LogManager> items =
-                from x in ocl
-                where x.Value == value && x.Ip == s.Ip
-                select x;
-            return items.ToList();
-        }
-
         protected override void OnStop()
         {
             m_shutdownEvent.Set();
 
             //wait for thread to stop giving it 10 second
+            m_threadDuplicateCheckWorker.Join(1000);
             m_threadWorker.Join(10000);
             // m_threadSnmpTrap.Join(10000);
             m_threadSnmpGet.Join(10000);

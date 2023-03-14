@@ -184,6 +184,8 @@
     <Compile Include="ActiveAlarm.cs" />
     <Compile Include="Config\JsonConfig.cs" />
     <Compile Include="DatabaseManager.cs" />
+    <Compile Include="DuplicateCheckActiveAlarm.cs" />
+    <Compile Include="DuplicateCheckMessage.cs" />
     <Compile Include="ExternalApi\ChannelAI.cs" />
     <Compile Include="LogManager.cs" />
     <Compile Include="LogSyncJob.cs" />
