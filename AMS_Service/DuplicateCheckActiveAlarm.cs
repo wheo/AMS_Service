@@ -14,6 +14,7 @@ namespace AMS_Service
         public string Level { get; set; }
 
         public string ChannelValue { get; set; }
+        public string UID { get; set; }
 
         private string _State;
 

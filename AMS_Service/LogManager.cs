@@ -86,7 +86,7 @@ namespace AMS_Service
 
             foreach (var alarm in newAlarms)
             {
-                logger.Info($"new alarm {alarm.Ip},  {alarm.ChannelValue}, {alarm.Level}, {alarm.State}");
+                logger.Info($"new alarm {alarm.Ip}, {alarm.UID}, {alarm.ChannelValue}, {alarm.Level}, {alarm.State}");
             }
 
             var deletedAlarms = oldAlarms.Where(oldAlarm => !alarms.Any(alarm =>
@@ -112,39 +112,54 @@ namespace AMS_Service
                 {
                     foreach (var deleted in deletedAlarms)
                     {
-                        logger.Info($"deleted alarm {deleted.Level}, {deleted.State}");
-                        cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND level = @level AND value = @value AND channel_value = @channel_value");
-                        cmd.Parameters.AddWithValue("@ip", deleted.Ip);
-                        cmd.Parameters.AddWithValue("@level", deleted.Level);
-                        cmd.Parameters.AddWithValue("@value", deleted.State);
-                        cmd.Parameters.AddWithValue("@channel_value", deleted.ChannelValue);
-                        await cmd.ExecuteNonQueryAsync();
-                        cmd.Parameters.Clear();
+                        logger.Info($"deleted alarm {deleted.Level}, {deleted.UID}, {deleted.State}");
+                        if (!string.IsNullOrEmpty(deleted.UID))
+                        {
+                            cmd.CommandText = string.Format(@"DELETE FROM active WHERE titan_uid = @uid AND value = @value");
+                            cmd.Parameters.AddWithValue("@uid", deleted.UID);
+                            cmd.Parameters.AddWithValue("@value", deleted.State);
+                            await cmd.ExecuteNonQueryAsync();
+                            cmd.Parameters.Clear();
 
-                        cmd.CommandText = string.Format(@"UPDATE log SET end_at = CURRENT_TIMESTAMP() WHERE ip = @ip AND level = @level AND value = @value AND channel_value = @channel_value ORDER BY start_at DESC LIMIT 1");
-                        cmd.Parameters.AddWithValue("@ip", deleted.Ip);
-                        cmd.Parameters.AddWithValue("@level", deleted.Level);
-                        cmd.Parameters.AddWithValue("@value", deleted.State);
-                        cmd.Parameters.AddWithValue("@channel_value", deleted.ChannelValue);
-                        await cmd.ExecuteNonQueryAsync();
-                        cmd.Parameters.Clear();
+                            cmd.CommandText = string.Format(@"UPDATE log SET end_at = CURRENT_TIMESTAMP() WHERE titan_uid = @uid AND value = @value ORDER BY start_at DESC LIMIT 1");
+                            cmd.Parameters.AddWithValue("@uid", deleted.UID);
+                            cmd.Parameters.AddWithValue("@value", deleted.State);
+                            await cmd.ExecuteNonQueryAsync();
+                            cmd.Parameters.Clear();
+                        }
+                        else
+                        {
+                            cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND value = @value");
+                            cmd.Parameters.AddWithValue("@ip", deleted.Ip);
+                            cmd.Parameters.AddWithValue("@value", deleted.State);
+                            await cmd.ExecuteNonQueryAsync();
+                            cmd.Parameters.Clear();
+
+                            cmd.CommandText = string.Format(@"UPDATE log SET end_at = CURRENT_TIMESTAMP() WHERE ip = @ip AND value = @value ORDER BY start_at DESC LIMIT 1");
+                            cmd.Parameters.AddWithValue("@ip", deleted.Ip);
+                            cmd.Parameters.AddWithValue("@value", deleted.State);
+                            await cmd.ExecuteNonQueryAsync();
+                            cmd.Parameters.Clear();
+                        }
                     }
 
                     foreach (var alarm in newAlarms)
                     {
-                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, level, value, channel_value) VALUES (@id, @ip, @level, @value, @channel_value)");
+                        cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, titan_uid, level, value, channel_value) VALUES (@id, @ip, @uid, @level, @value, @channel_value)");
                         cmd.Parameters.AddWithValue("@id", alarm.Id);
                         cmd.Parameters.AddWithValue("@ip", alarm.Ip);
+                        cmd.Parameters.AddWithValue("@uid", alarm.UID);
                         cmd.Parameters.AddWithValue("@level", alarm.Level);
                         cmd.Parameters.AddWithValue("@value", alarm.State);
                         cmd.Parameters.AddWithValue("@channel_value", alarm.ChannelValue);
                         await cmd.ExecuteNonQueryAsync();
                         cmd.Parameters.Clear();
 
-                        cmd.CommandText = string.Format(@"INSERT INTO log (ip, id, name, level, value, snmp_type_value, channel_value)
-VALUES (@ip, @id, (SELECT name from server WHERE ip = @ip), @level, @value, 'begin', @channel_value)");
+                        cmd.CommandText = string.Format(@"INSERT INTO log (ip, id, titan_uid, name, level, value, snmp_type_value, channel_value)
+VALUES (@ip, @id, @uid, (SELECT name from server WHERE ip = @ip), @level, @value, 'begin', @channel_value)");
                         cmd.Parameters.AddWithValue("@id", alarm.Id);
                         cmd.Parameters.AddWithValue("@ip", alarm.Ip);
+                        cmd.Parameters.AddWithValue("@uid", alarm.UID);
                         cmd.Parameters.AddWithValue("@level", alarm.Level);
                         cmd.Parameters.AddWithValue("@value", alarm.State);
                         cmd.Parameters.AddWithValue("@channel_value", alarm.ChannelValue);

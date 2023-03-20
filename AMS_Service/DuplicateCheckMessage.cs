@@ -27,5 +27,7 @@ namespace AMS_Service
 
         public string ip { get; set; }
         public string channel_value { get; set; }
+
+        public string uid { get; set; }
     }
 }

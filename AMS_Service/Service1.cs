@@ -173,6 +173,7 @@ namespace AMS_Service
 
         private async void ApiDuplicateCheckWorker()
         {
+            await Task.Delay(1000);
             logger.Info("Api Duplicate Check Worker Start...");
 
             bool signal = false;
@@ -184,14 +185,15 @@ namespace AMS_Service
                     signal = m_shutdownEvent.WaitOne(m_worker_delay, true);
                     if (signal)
                     {
-                        logger.Info($"signal TERM in while");
+                        logger.Info($"signal TERM in ApiDuplicateCheckWorker");
                         break;
                     }
 
                     string uri = $"http://{_Api_ip}:{_Api_port}/api/v2/servicesmngt/services/state/errorcheck";
                     var response = Utils.Http.GetAsync(uri);
                     string content = await response.Result.Content.ReadAsStringAsync();
-                    if (!string.IsNullOrEmpty(content))
+
+                    if (!string.IsNullOrEmpty(content) && response.Result.StatusCode == HttpStatusCode.OK)
                     {
                         List<DuplicateCheckMessage> duplicateMsgs = JsonConvert.DeserializeObject<List<DuplicateCheckMessage>>(content);
                         List<DuplicateCheckActiveAlarm> alarms = new List<DuplicateCheckActiveAlarm>();
@@ -205,6 +207,7 @@ namespace AMS_Service
                                 Level = msg.level,
                                 State = msg.state,
                                 Ip = msg.ip,
+                                UID = msg.uid,
                                 ChannelValue = msg.channel_value
                             };
                             alarms.Add(alarm);
@@ -253,7 +256,7 @@ namespace AMS_Service
                     signal = m_shutdownEvent.WaitOne(m_worker_delay, true);
                     if (signal)
                     {
-                        logger.Info($"signal TERM in while");
+                        logger.Info($"signal TERM in ApiWorker");
                         break;
                     }
                     List<Server> servers = null;
@@ -298,7 +301,7 @@ namespace AMS_Service
             // logger.Info(uri);
             var response = Utils.Http.GetAsync(uri);
             string content = await response.Result.Content.ReadAsStringAsync();
-            if (!string.IsNullOrEmpty(content) && content.Length > 7)
+            if (!string.IsNullOrEmpty(content) && response.Result.StatusCode == HttpStatusCode.OK)
             {
                 List<TitanMessage> titanmsgs = JsonConvert.DeserializeObject<List<TitanMessage>>(content);
                 List<TitanActiveAlarm> alarms = new List<TitanActiveAlarm>();
@@ -347,10 +350,6 @@ namespace AMS_Service
                 {
                     _semaphore.Release();
                 }
-            }
-            else
-            {
-                logger.Info("Titan Api Msg is empty");
             }
             return true;
         }
@@ -487,7 +486,7 @@ namespace AMS_Service
                     signal = m_shutdownEvent.WaitOne(m_get_delay, true);
                     if (signal)
                     {
-                        logger.Info($"signal TERM in while");
+                        logger.Info($"signal TERM in SnmpGetServiceAsync");
                         break;
                     }
 
@@ -537,7 +536,6 @@ namespace AMS_Service
                             oldServer = server;
                         }
                         //logger.Info($"*** old server ({oldServer.Ip}), {oldServer.ModelName}, {oldServer.Status}, isConnect : {oldServer.IsConnect}");
-
                         //logger.Info($"*** new server ({server.Ip}), {server.ModelName}, {server.Status}, isConnect : {server.IsConnect}");
                         SnmpService.SetTimeout(_SnmpGetTimeout);
                         SnmpService.SetRetry(_SnmpRetryCount);
