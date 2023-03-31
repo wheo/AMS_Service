@@ -81,16 +81,15 @@ namespace AMS_Service
             // old 알람에서 없어진 알람이 있는지 확인
 
             var newAlarms = alarms.Where(alarm => !oldAlarms.Any(oldAlarm =>
-            oldAlarm.State == alarm.State
-            && oldAlarm.Level == alarm.Level)).ToList();
-
-            foreach (var alarm in newAlarms)
-            {
-                logger.Info($"new alarm {alarm.Ip}, {alarm.UID}, {alarm.ChannelValue}, {alarm.Level}, {alarm.State}");
-            }
+                oldAlarm.Ip == alarm.Ip
+                && oldAlarm.State == alarm.State
+                && oldAlarm.ChannelValue == alarm.ChannelValue
+                && oldAlarm.Level == alarm.Level)).ToList();
 
             var deletedAlarms = oldAlarms.Where(oldAlarm => !alarms.Any(alarm =>
-                oldAlarm.State == alarm.State
+                oldAlarm.Ip == alarm.Ip
+                && oldAlarm.State == alarm.State
+                && oldAlarm.ChannelValue == alarm.ChannelValue
                 && oldAlarm.Level == alarm.Level)).ToList();
 
             using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
@@ -112,7 +111,7 @@ namespace AMS_Service
                 {
                     foreach (var deleted in deletedAlarms)
                     {
-                        logger.Info($"deleted alarm {deleted.Level}, {deleted.UID}, {deleted.State}");
+                        logger.Info($"deleted dupcheck alarm {deleted.Ip}, {deleted.Level}, {deleted.ChannelValue}, {deleted.UID}, {deleted.State}");
                         if (!string.IsNullOrEmpty(deleted.UID))
                         {
                             cmd.CommandText = string.Format(@"DELETE FROM active WHERE titan_uid = @uid AND value = @value");
@@ -145,6 +144,7 @@ namespace AMS_Service
 
                     foreach (var alarm in newAlarms)
                     {
+                        logger.Info($"new dupcheck alarm {alarm.Ip}, {alarm.UID}, {alarm.ChannelValue}, {alarm.Level}, {alarm.State}");
                         cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, titan_uid, level, value, channel_value) VALUES (@id, @ip, @uid, @level, @value, @channel_value)");
                         cmd.Parameters.AddWithValue("@id", alarm.Id);
                         cmd.Parameters.AddWithValue("@ip", alarm.Ip);
@@ -189,11 +189,6 @@ VALUES (@ip, @id, @uid, (SELECT name from server WHERE ip = @ip), @level, @value
             && oldAlarm.Level == alarm.Level
             && oldAlarm.ChannelName == alarm.ChannelName)).ToList();
 
-            foreach (var alarm in newAlarms)
-            {
-                logger.Info($"new alarm {alarm.ChannelName}, {alarm.Value}, {alarm.Desc}");
-            }
-
             var deletedAlarms = oldAlarms.Where(oldAlarm => !alarms.Any(alarm =>
                 oldAlarm.Value == alarm.Value
                 && oldAlarm.Desc == alarm.Desc
@@ -219,7 +214,7 @@ VALUES (@ip, @id, @uid, (SELECT name from server WHERE ip = @ip), @level, @value
                 {
                     foreach (var deleted in deletedAlarms)
                     {
-                        logger.Info($"deleted alarm {deleted.ChannelName}, {deleted.Value}, {deleted.Desc}");
+                        logger.Info($"deleted alarm {Ip}, {deleted.ChannelName}, {deleted.Value}, {deleted.Desc}");
                         cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND level = @level AND channel_value = @channel_value AND value = @value AND _desc = @desc");
                         cmd.Parameters.AddWithValue("@ip", Ip);
                         cmd.Parameters.AddWithValue("@level", deleted.Level);
@@ -241,6 +236,7 @@ VALUES (@ip, @id, @uid, (SELECT name from server WHERE ip = @ip), @level, @value
 
                     foreach (var alarm in newAlarms)
                     {
+                        logger.Info($"new alarm {Ip}, {alarm.ChannelName}, {alarm.Value}, {alarm.Desc}");
                         cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, channel_value, level, value, _desc)
 VALUES (@id, @ip, @channel_value, @level, @value, @desc)");
                         cmd.Parameters.AddWithValue("@ip", Ip);

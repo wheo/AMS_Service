@@ -17,6 +17,9 @@ namespace AMS_Service.Config
         public String api_ip { get; set; }
         public int api_port { get; set; }
 
+        public int api_work_interval { get; set; }
+        public int api_error_check_interval { get; set; }
+
         public string ChannelAIHost { get; set; }
 
         public bool EnableChannelAI { get; set; } = false;

@@ -31,6 +31,8 @@ namespace AMS_Service
         private int _SnmpPort = 162;
         private int _PollingSec = 10; // sec
         private int _DeviceReport = 86400; // sec
+        private int _apiWorkPollingSec = 1;
+        private int _apiErrorCheckPollingSec = 1;
         private int _SnmpGetTimeout = 300; // millisec
         private int _SnmpRetryCount = 3;
         private int _SnmpTrapWaitingTime = 10;
@@ -51,6 +53,7 @@ namespace AMS_Service
         protected ManualResetEvent m_shutdownEvent;
         protected TimeSpan m_get_delay;
         protected TimeSpan m_worker_delay;
+        protected TimeSpan m_error_check_delay;
         protected TimeSpan m_trap_delay;
 
         private CancellationTokenSource _cts;
@@ -92,6 +95,9 @@ namespace AMS_Service
                     jsonConfig.EnableChannelAI = false;
                     jsonConfig.ha_role = "M";
 
+                    jsonConfig.api_work_interval = 1;
+                    jsonConfig.api_error_check_interval = 1;
+
                     jsonString = JsonConvert.SerializeObject(jsonConfig);
                     File.WriteAllText(jsonConfig.configFileName, jsonString);
                 }
@@ -107,6 +113,9 @@ namespace AMS_Service
                 ChannelAI.timeout = jsonConfig.timeout;
                 _Api_ip = jsonConfig.api_ip;
                 _Api_port = jsonConfig.api_port;
+
+                _apiWorkPollingSec = jsonConfig.api_work_interval;
+                _apiErrorCheckPollingSec = jsonConfig.api_error_check_interval;
 
                 logger.Info($"ChannelAI.Host : {ChannelAI.Host}");
                 logger.Info($"Enable ChannelAI : {ChannelAI.IsEnable}");
@@ -124,13 +133,16 @@ namespace AMS_Service
 
                 m_get_delay = new TimeSpan(0, 0, 0, _PollingSec, 0);
                 m_trap_delay = new TimeSpan(0, 0, 0, 0, _SnmpTrapWaitingTime);
-                m_worker_delay = new TimeSpan(0, 0, 0, 1, 0); // worker 1 sec
+                m_worker_delay = new TimeSpan(0, 0, 0, _apiWorkPollingSec, 0); // worker 1 sec
+                m_error_check_delay = new TimeSpan(0, 0, 0, _apiErrorCheckPollingSec, 0);
 
                 logger.Info($"SnmpPort : {_SnmpPort}");
                 logger.Info($"Polling Sec : {_PollingSec}");
                 logger.Info($"Snmp Get Timeout  : {_SnmpGetTimeout}");
                 logger.Info($"Snmp Get Retry Count : {_SnmpRetryCount}");
                 logger.Info($"Snmp Trap Waiting Time : {_SnmpTrapWaitingTime}");
+                logger.Info($"API Work Polling Sec : {_apiWorkPollingSec}");
+                logger.Info($"API Error Check Polling Sec : {_apiErrorCheckPollingSec}");
             }
             catch (FileLoadException e)
             {
@@ -173,7 +185,7 @@ namespace AMS_Service
 
         private async void ApiDuplicateCheckWorker()
         {
-            await Task.Delay(1000);
+            await Task.Delay(1000); // api worker thread보다 늦게 실행되게 하는 목적
             logger.Info("Api Duplicate Check Worker Start...");
 
             bool signal = false;
@@ -182,7 +194,7 @@ namespace AMS_Service
             {
                 try
                 {
-                    signal = m_shutdownEvent.WaitOne(m_worker_delay, true);
+                    signal = m_shutdownEvent.WaitOne(m_error_check_delay, true);
                     if (signal)
                     {
                         logger.Info($"signal TERM in ApiDuplicateCheckWorker");
@@ -190,8 +202,10 @@ namespace AMS_Service
                     }
 
                     string uri = $"http://{_Api_ip}:{_Api_port}/api/v2/servicesmngt/services/state/errorcheck";
+                    logger.Info(uri);
                     var response = Utils.Http.GetAsync(uri);
                     string content = await response.Result.Content.ReadAsStringAsync();
+                    logger.Info(content);
 
                     if (!string.IsNullOrEmpty(content) && response.Result.StatusCode == HttpStatusCode.OK)
                     {
@@ -200,7 +214,7 @@ namespace AMS_Service
 
                         foreach (var msg in duplicateMsgs)
                         {
-                            // logger.Info($"{msg.level}, {msg.state}, {msg.name}");
+                            logger.Info($"({msg.uid}) {msg.ip}, {msg.level}, {msg.state}, {msg.channel_value}");
 
                             DuplicateCheckActiveAlarm alarm = new DuplicateCheckActiveAlarm
                             {
@@ -958,7 +972,7 @@ namespace AMS_Service
             m_shutdownEvent.Set();
 
             //wait for thread to stop giving it 10 second
-            m_threadDuplicateCheckWorker.Join(1000);
+            m_threadDuplicateCheckWorker.Join(10000);
             m_threadWorker.Join(10000);
             // m_threadSnmpTrap.Join(10000);
             m_threadSnmpGet.Join(10000);
