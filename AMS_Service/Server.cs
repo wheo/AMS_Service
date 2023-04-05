@@ -111,6 +111,10 @@ namespace AMS_Service
             }
         }
 
+        public bool Alarmignore = false;
+
+        public int AlarmignoreSecond = 30;
+
         [JsonIgnore]
         public int _VideoOutputId { get; set; }
 

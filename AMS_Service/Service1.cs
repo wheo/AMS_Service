@@ -1,5 +1,4 @@
 ﻿using AMS_Service.Config;
-using AMS_Service.ExternalApi;
 using AMS_Service.Service;
 using AMS_Service.Singleton;
 using log4net;
@@ -30,13 +29,11 @@ namespace AMS_Service
 
         private int _SnmpPort = 162;
         private int _PollingSec = 10; // sec
-        private int _DeviceReport = 86400; // sec
         private int _apiWorkPollingSec = 1;
         private int _apiErrorCheckPollingSec = 1;
         private int _SnmpGetTimeout = 300; // millisec
         private int _SnmpRetryCount = 3;
         private int _SnmpTrapWaitingTime = 10;
-        private string _Ha_role = "M";
         public static int _HttpTimeout = 10;
 
         public static string _Api_ip;
@@ -91,10 +88,6 @@ namespace AMS_Service
                     jsonConfig.api_ip = "127.0.0.1";
                     jsonConfig.api_port = 80;
 
-                    jsonConfig.ChannelAIHost = "http://61.78.151.69:8081";
-                    jsonConfig.EnableChannelAI = false;
-                    jsonConfig.ha_role = "M";
-
                     jsonConfig.api_work_interval = 1;
                     jsonConfig.api_error_check_interval = 1;
 
@@ -107,20 +100,11 @@ namespace AMS_Service
 
                 DatabaseManager.GetInstance().SetConnectionString(jsonConfig.ip, jsonConfig.port, jsonConfig.id, jsonConfig.pw, jsonConfig.DatabaseName);
 
-                ChannelAI.Host = jsonConfig.ChannelAIHost;
-                ChannelAI.IsEnable = jsonConfig.EnableChannelAI;
-                ChannelAI.Ha_role = jsonConfig.ha_role;
-                ChannelAI.timeout = jsonConfig.timeout;
                 _Api_ip = jsonConfig.api_ip;
                 _Api_port = jsonConfig.api_port;
 
                 _apiWorkPollingSec = jsonConfig.api_work_interval;
                 _apiErrorCheckPollingSec = jsonConfig.api_error_check_interval;
-
-                logger.Info($"ChannelAI.Host : {ChannelAI.Host}");
-                logger.Info($"Enable ChannelAI : {ChannelAI.IsEnable}");
-                logger.Info($"ha_role : {_Ha_role}");
-                logger.Info($"http timeout : {ChannelAI.timeout}");
 
                 logger.Info($"API IP : {_Api_ip}");
                 logger.Info($"API Port : {_Api_port}");
@@ -129,7 +113,7 @@ namespace AMS_Service
 
                 _SnmpPort = Snmp.GetSnmpPort();
                 _PollingSec = Snmp.GetPollingSec();
-                _HttpTimeout = ChannelAI.timeout;
+                _HttpTimeout = jsonConfig.timeout;
 
                 m_get_delay = new TimeSpan(0, 0, 0, _PollingSec, 0);
                 m_trap_delay = new TimeSpan(0, 0, 0, 0, _SnmpTrapWaitingTime);
@@ -368,7 +352,7 @@ namespace AMS_Service
             return true;
         }
 
-        private async Task<JObject> ServerTask(Server server, Server oldServer)
+        private async Task ServerTask(Server server, Server oldServer)
         {
             Snmp snmp = new Snmp
             {
@@ -424,38 +408,6 @@ namespace AMS_Service
                 server.IsConnect = Server.EnumIsConnect.Disconnect;
                 server.UpdateState = Server.EnumStatus.Critical.ToString();
             }
-
-            JObject o = new JObject();
-            if (ChannelAI.IsEnable)
-            {
-                try
-                {
-                    o.Add("device_id", server.Id);
-                    o.Add("status", server.Status);
-                    //10d 7h 51m 0s 520ms to second
-                    string[] uptime;
-                    if (!string.IsNullOrEmpty(server.Uptime))
-                    {
-                        uptime = server.Uptime.Split(' ');
-                        int day = Convert.ToInt32(uptime[0].Substring(0, uptime[0].Length - 1));
-                        int hour = Convert.ToInt32(uptime[1].Substring(0, uptime[1].Length - 1));
-                        int min = Convert.ToInt32(uptime[2].Substring(0, uptime[2].Length - 1));
-                        int sec = Convert.ToInt32(uptime[3].Substring(0, uptime[3].Length - 1));
-                        Int64 uptime_sec = day * 86400 + hour * 3600 + min * 60 + sec;
-                        o.Add("sys_uptime", uptime_sec);
-                    }
-                    else
-                    {
-                        o.Add("sys_uptime", 0);
-                    }
-                }
-                catch (Exception e)
-                {
-                    logger.Error(e.ToString());
-                }
-            }
-            // logger.Info($"[{server.Ip}] Get 끝");
-            return o;
         }
 
         private async void SnmpGetServiceAsync()
@@ -517,28 +469,7 @@ namespace AMS_Service
                         newServers = Server.GetServerList();
                     }
 
-                    _DeviceReport += _PollingSec;
-                    if (_DeviceReport >= 3600)
-                    {
-                        _DeviceReport = 0;
-                        if (ChannelAI.IsEnable)
-                        {
-                            try
-                            {
-                                // 채널 AI status
-                                string response = ExternalApi.ChannelAI.Device(newServers);
-                                logger.Info("api response : " + response);
-                            }
-                            catch (Exception e)
-                            {
-                                logger.Error(e.ToString());
-                            }
-                        }
-                    }
-
-                    JArray j = new JArray();
-
-                    List<Task<JObject>> taskList = new List<Task<JObject>>();
+                    List<Task> taskList = new List<Task>();
 
                     foreach (Server server in newServers)
                     {
@@ -558,23 +489,8 @@ namespace AMS_Service
                     // logger.Info("**** Task Any 시작 ***");
                     while (taskList.Any())
                     {
-                        Task<JObject> taskCompleted = await Task.WhenAny(taskList);
+                        Task taskCompleted = await Task.WhenAny(taskList);
                         taskList.Remove(taskCompleted);
-                        j.Add(await taskCompleted);
-                    }
-
-                    if (ChannelAI.IsEnable)
-                    {
-                        try
-                        {
-                            // 채널 AI status
-                            string response = ExternalApi.ChannelAI.DeviceState(j);
-                            logger.Info("api response : " + response);
-                        }
-                        catch (Exception e)
-                        {
-                            logger.Error(e.ToString());
-                        }
                     }
 
                     // ack check
@@ -584,19 +500,6 @@ namespace AMS_Service
                         foreach (ActiveAlarm alarm in ackAlarm)
                         {
                             ActiveAlarm.UpdateAckAlarm(alarm);
-
-                            // update and channelAI api call
-                            if (ChannelAI.IsEnable)
-                            {
-                                try
-                                {
-                                    ChannelAI.AckAlarmEvent(alarm);
-                                }
-                                catch (Exception e)
-                                {
-                                    logger.Error(e.ToString());
-                                }
-                            }
                         }
                         Setting.UpdateAckZero();
                     }
@@ -930,18 +833,6 @@ namespace AMS_Service
                                                 UnitName = Server.GetServerName(snmp.IP),
                                                 UpdateState = snmp.LevelString
                                             };
-
-                                            if (ChannelAI.IsEnable)
-                                            {
-                                                try
-                                                {
-                                                    ExternalApi.ChannelAI.CombinePostEvent(snmp, s);
-                                                }
-                                                catch (Exception e)
-                                                {
-                                                    logger.Error(e.ToString());
-                                                }
-                                            }
                                         }
                                     }
                                 }

@@ -5,7 +5,6 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
-using AMS_Service.ExternalApi;
 using log4net;
 
 namespace AMS_Service.Utils
@@ -14,6 +13,7 @@ namespace AMS_Service.Utils
     {
         private static readonly ILog logger = log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
+        /*
         public static async Task<HttpResponseMessage> PutAsync(string uri, JObject json)
         {
             HttpClient client = new HttpClient();
@@ -39,6 +39,7 @@ namespace AMS_Service.Utils
             var response = await client.PostAsync($"{ChannelAI.Host}{uri}", stringContent);
             return response;
         }
+        */
 
         public static async Task<HttpResponseMessage> GetAsync(string uri)
         {

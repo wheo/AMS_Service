@@ -20,13 +20,7 @@ namespace AMS_Service.Config
         public int api_work_interval { get; set; }
         public int api_error_check_interval { get; set; }
 
-        public string ChannelAIHost { get; set; }
-
-        public bool EnableChannelAI { get; set; } = false;
-
         public int timeout { get; set; } = 3;
-
-        public string ha_role { get; set; } = "M";
 
         public String configFileName = "config.json";
 
