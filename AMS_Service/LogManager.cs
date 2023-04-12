@@ -409,7 +409,7 @@ VALUES (@client_ip, @ip, @port, @id, @community, @channel, @channel_value, @main
 
                         cmd.Parameters.Clear();
 
-                        logger.Debug($"({trap.TypeValue}) event id : {trap.event_id}, titanUID : {trap.TitanUID}");
+                        // logger.Debug($"({trap.TypeValue}) event id : {trap.event_id}, titanUID : {trap.TitanUID}");
 
                         cmd.CommandText = string.Format(@"DELETE FROM active WHERE id = @id");
                         cmd.Parameters.AddWithValue("@id", trap.event_id);

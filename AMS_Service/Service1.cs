@@ -295,58 +295,61 @@ namespace AMS_Service
                 oldAlarms.Add(o);
                 logger.Info($"{o.Ip} added");
             }
-            string uri = $"http://{_Api_ip}:{_Api_port}/api/v2/log/sync/{server.Ip}";
-            // logger.Info(uri);
-            var response = Utils.Http.GetAsync(uri);
-            string content = await response.Result.Content.ReadAsStringAsync();
-            if (!string.IsNullOrEmpty(content) && response.Result.StatusCode == HttpStatusCode.OK)
+            if (!server.AlarmIgnore)
             {
-                List<TitanMessage> titanmsgs = JsonConvert.DeserializeObject<List<TitanMessage>>(content);
-                List<TitanActiveAlarm> alarms = new List<TitanActiveAlarm>();
-
-                foreach (var msg in titanmsgs)
+                string uri = $"http://{_Api_ip}:{_Api_port}/api/v2/log/sync/{server.Ip}";
+                // logger.Info(uri);
+                var response = Utils.Http.GetAsync(uri);
+                string content = await response.Result.Content.ReadAsStringAsync();
+                if (!string.IsNullOrEmpty(content) && response.Result.StatusCode == HttpStatusCode.OK)
                 {
-                    foreach (var state in msg.state)
+                    List<TitanMessage> titanmsgs = JsonConvert.DeserializeObject<List<TitanMessage>>(content);
+                    List<TitanActiveAlarm> alarms = new List<TitanActiveAlarm>();
+
+                    foreach (var msg in titanmsgs)
                     {
-                        if (string.IsNullOrEmpty(state.Level))
+                        foreach (var state in msg.state)
                         {
-                            if (state.Name.Contains("Service State Is Invalid") || state.Name.Contains("Service State Is Stopped"))
+                            if (string.IsNullOrEmpty(state.Level))
                             {
-                                state.Level = "Critical";
+                                if (state.Name.Contains("Service State Is Invalid") || state.Name.Contains("Service State Is Stopped"))
+                                {
+                                    state.Level = "Critical";
+                                }
+                                else
+                                {
+                                    state.Level = "Information";
+                                }
                             }
-                            else
+
+                            // logger.Info($"*** API Info *** {server.Ip}, {msg.name}, {state.Level}, {state.Name}, {state.Description}");
+                            TitanActiveAlarm alarm = new TitanActiveAlarm
                             {
-                                state.Level = "Information";
-                            }
+                                ChannelName = msg.name,
+                                Level = state.Level,
+                                Value = state.Name,
+                                Desc = state.Description
+                            };
+                            alarms.Add(alarm);
                         }
-
-                        // logger.Info($"*** API Info *** {server.Ip}, {msg.name}, {state.Level}, {state.Name}, {state.Description}");
-                        TitanActiveAlarm alarm = new TitanActiveAlarm
-                        {
-                            ChannelName = msg.name,
-                            Level = state.Level,
-                            Value = state.Name,
-                            Desc = state.Description
-                        };
-                        alarms.Add(alarm);
                     }
-                }
 
-                // 동기화
-                await _semaphore.WaitAsync();
-                try
-                {
-                    var oldAlarm = oldAlarms.Where(x => x.Ip == server.Ip).FirstOrDefault();
-                    await LogManager.ActiveAlarm(server.Ip, alarms, oldAlarm.Alarms);
-                    oldAlarm.Alarms = alarms;
-                }
-                catch (Exception e)
-                {
-                    logger.Error(e.ToString());
-                }
-                finally
-                {
-                    _semaphore.Release();
+                    // 동기화
+                    await _semaphore.WaitAsync();
+                    try
+                    {
+                        var oldAlarm = oldAlarms.Where(x => x.Ip == server.Ip).FirstOrDefault();
+                        await LogManager.ActiveAlarm(server.Ip, alarms, oldAlarm.Alarms);
+                        oldAlarm.Alarms = alarms;
+                    }
+                    catch (Exception e)
+                    {
+                        logger.Error(e.ToString());
+                    }
+                    finally
+                    {
+                        _semaphore.Release();
+                    }
                 }
             }
             return true;
@@ -364,49 +367,70 @@ namespace AMS_Service
                 TypeValue = "begin",
                 TranslateValue = ""
             };
-            // logger.Info($"[{server.Ip}] Get 시작");
-            if (SnmpService.Get(server))
+            try
             {
-                if (!string.IsNullOrEmpty(server.ModelName))
+                // logger.Info($"[{server.Ip}] Get 시작");
+                if (SnmpService.Get(server))
                 {
-                    if (oldServer.IsConnect == Server.EnumIsConnect.Disconnect)
+                    if (!string.IsNullOrEmpty(server.ModelName))
                     {
-                        logger.Info($"{snmp.IP} is Reconnected");
-                        snmp.IP = server.Ip;
-                        snmp.Port = "65535";
-                        snmp.Community = "public";
-                        snmp.Oid = SnmpService._MyConnectionOid;
-                        snmp.LevelString = Server.EnumStatus.Critical.ToString();
-                        snmp.TypeValue = "end";
-                        snmp.TranslateValue = "Failed to connection";
-                        snmp.Main = 0;
-                        snmp.Channel = 0;
-                        await LogManager.LoggingDatabase(snmp);
+                        if (server.AlarmIgnore)
+                        {
+                            server.AlarmIgnoreCount++;
+                        }
+                        if (server.AlarmIgnoreCount > server.AlarmIgnoreSecond)
+                        {
+                            server.AlarmIgnore = false;
+                            server.AlarmIgnoreCount = 0;
+                            logger.Info($"({server.Ip}) alarm is enabled");
+                        }
+                        //if (oldServer.IsConnect == Server.EnumIsConnect.Disconnect && !server.AlarmIgnore)
+                        if (!server.AlarmIgnore)
+                        {
+                            logger.Info($"{snmp.IP} is Reconnected (${server.AlarmIgnoreSecond} sec delayed)");
+                            server.AlarmIgnoreCount = 0;
+                            snmp.IP = server.Ip;
+                            snmp.Port = "65535";
+                            snmp.Community = "public";
+                            snmp.Oid = SnmpService._MyConnectionOid;
+                            snmp.LevelString = Server.EnumStatus.Critical.ToString();
+                            snmp.TypeValue = "end";
+                            snmp.TranslateValue = "Failed to connection";
+                            snmp.Main = 0;
+                            snmp.Channel = 0;
+                            await LogManager.LoggingDatabase(snmp);
+                        }
                     }
+                    server.IsConnect = Server.EnumIsConnect.Connect;
+                    server.UpdateState = Server.EnumStatus.Normal.ToString();
                 }
-                server.IsConnect = Server.EnumIsConnect.Connect;
-                server.UpdateState = Server.EnumStatus.Normal.ToString();
+                else // snmp get time out
+                {
+                    if (!string.IsNullOrEmpty(server.Ip))
+                    {
+                        if (oldServer.IsConnect == Server.EnumIsConnect.Connect)
+                        {
+                            logger.Info($"{snmp.IP} is disconnected and alarm is disabled");
+                            server.AlarmIgnore = true;
+                            snmp.IP = server.Ip;
+                            snmp.Port = "65535";
+                            snmp.Community = "public";
+                            snmp.Oid = SnmpService._MyConnectionOid;
+                            snmp.LevelString = Server.EnumStatus.Critical.ToString();
+                            snmp.TypeValue = "begin";
+                            snmp.TranslateValue = "Failed to connection";
+                            snmp.Main = 0;
+                            snmp.Channel = 0;
+                            await LogManager.LoggingDatabase(snmp);
+                        }
+                    }
+                    server.IsConnect = Server.EnumIsConnect.Disconnect;
+                    server.UpdateState = Server.EnumStatus.Critical.ToString();
+                }
             }
-            else // snmp get time out
+            catch (Exception e)
             {
-                if (!string.IsNullOrEmpty(server.Ip))
-                {
-                    if (oldServer.IsConnect == Server.EnumIsConnect.Connect)
-                    {
-                        snmp.IP = server.Ip;
-                        snmp.Port = "65535";
-                        snmp.Community = "public";
-                        snmp.Oid = SnmpService._MyConnectionOid;
-                        snmp.LevelString = Server.EnumStatus.Critical.ToString();
-                        snmp.TypeValue = "begin";
-                        snmp.TranslateValue = "Failed to connection";
-                        snmp.Main = 0;
-                        snmp.Channel = 0;
-                        await LogManager.LoggingDatabase(snmp);
-                    }
-                }
-                server.IsConnect = Server.EnumIsConnect.Disconnect;
-                server.UpdateState = Server.EnumStatus.Critical.ToString();
+                logger.Error(e.ToString());
             }
         }
 

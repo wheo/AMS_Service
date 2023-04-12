@@ -111,9 +111,37 @@ namespace AMS_Service
             }
         }
 
-        public bool Alarmignore = false;
+        private bool _AlarmIgnore { get; set; }
 
-        public int AlarmignoreSecond = 30;
+        public bool AlarmIgnore
+        {
+            get { return _AlarmIgnore; }
+            set
+            {
+                if (_AlarmIgnore != value)
+                {
+                    _AlarmIgnore = value;
+                    OnPropertyChanged(new PropertyChangedEventArgs("AlarmIgnore"));
+                }
+            }
+        }
+
+        private int _AlarmIgnoreCount { get; set; }
+
+        public int AlarmIgnoreCount
+        {
+            get { return _AlarmIgnoreCount; }
+            set
+            {
+                if (_AlarmIgnoreCount != value)
+                {
+                    _AlarmIgnoreCount = value;
+                    OnPropertyChanged(new PropertyChangedEventArgs("AlarmIgnoreCount"));
+                }
+            }
+        }
+
+        public int AlarmIgnoreSecond = 30;
 
         [JsonIgnore]
         public int _VideoOutputId { get; set; }
@@ -333,6 +361,14 @@ namespace AMS_Service
                 {
                     UpdateServerUptime();
                 }
+                else if (e.PropertyName.Equals("AlarmIgnoreCount"))
+                {
+                    UpdateAlarmIgnoreCount();
+                }
+                else if (e.PropertyName.Equals("AlarmIgnore"))
+                {
+                    UpdateAlarmIgnore();
+                }
             }
         }
 
@@ -340,6 +376,7 @@ namespace AMS_Service
         {
             DataTable dt = new DataTable();
             string query = @"SELECT S.id, S.gid, S.name, S.ip, S.type, IFNULL(S.uptime,'') as uptime, S.status, S.ismute, S.reboot
+, S.disconnect, S.alarm_ignore_cnt, S.alarm_ignore_sec
 , IF(S.status = 'Critical', 'Red', IF(S.status = 'Warning', '#FF8000', IF(S.status = 'Information', 'Blue', 'Green'))) AS color
 , G.name as grp_name
 , A.path FROM server S
@@ -366,7 +403,10 @@ ORDER BY S.name ASC";
                 Uptime = row.Field<string>("uptime"),
                 Status = row.Field<string>("status"),
                 IsMute = row.Field<string>("ismute"),
-                Reboot = row.Field<string>("reboot")
+                Reboot = row.Field<string>("reboot"),
+                AlarmIgnore = row.Field<string>("disconnect") == "Y" ? true : false,
+                AlarmIgnoreCount = row.Field<int>("alarm_ignore_cnt"),
+                AlarmIgnoreSecond = row.Field<int>("alarm_ignore_sec")
             }).ToList();
         }
 
@@ -408,6 +448,54 @@ ORDER BY S.name ASC";
                         await cmd.ExecuteNonQueryAsync();
 
                         //logger.Info($"UpdateServerStatus ({this.Status}), {this.Ip}, {this.Uptime}, {this.UptimeFormat}");
+                    }
+                }
+                catch (Exception e)
+                {
+                    logger.Error(e.ToString());
+                }
+            }
+        }
+
+        public async void UpdateAlarmIgnoreCount()
+        {
+            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
+            {
+                try
+                {
+                    await conn.OpenAsync();
+                    string sql = "UPDATE server set alarm_ignore_cnt = @alarm_ignore_cnt WHERE id = @id";
+
+                    using (MySqlCommand cmd = new MySqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", this.Id);
+                        cmd.Parameters.AddWithValue("@alarm_ignore_cnt", this.AlarmIgnoreCount);
+                        await cmd.ExecuteNonQueryAsync();
+
+                        //logger.Info($"UpdateServerStatus ({this.Status}), {this.Ip}, {this.Uptime}, {this.UptimeFormat}");
+                    }
+                }
+                catch (Exception e)
+                {
+                    logger.Error(e.ToString());
+                }
+            }
+        }
+
+        public async void UpdateAlarmIgnore()
+        {
+            using (MySqlConnection conn = new MySqlConnection(DatabaseManager.GetInstance().ConnectionString))
+            {
+                try
+                {
+                    await conn.OpenAsync();
+                    string sql = "UPDATE server set disconnect = @disconnect WHERE id = @id";
+
+                    using (MySqlCommand cmd = new MySqlCommand(sql, conn))
+                    {
+                        cmd.Parameters.AddWithValue("@id", this.Id);
+                        cmd.Parameters.AddWithValue("@disconnect", this.AlarmIgnore == true ? "Y" : "N");
+                        await cmd.ExecuteNonQueryAsync();
                     }
                 }
                 catch (Exception e)

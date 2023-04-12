@@ -18,6 +18,7 @@ namespace AMS_Service.Service
         public static bool _shouldStop = false;
 
         public static string _MyConnectionOid = "1.3.6.1.4.1.27338";
+        public static string _ServiceInitOid = "1.3.6.1.4.1.27338.1";
 
         public static string _SysUptime = "1.3.6.1.2.1.1.3.0";
 
