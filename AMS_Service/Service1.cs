@@ -295,63 +295,85 @@ namespace AMS_Service
                 oldAlarms.Add(o);
                 logger.Info($"{o.Ip} added");
             }
-            if (!server.AlarmIgnore)
+
+            string uri = $"http://{_Api_ip}:{_Api_port}/api/v2/log/sync/{server.Ip}";
+            // logger.Info(uri);
+            var response = Utils.Http.GetAsync(uri);
+            string content = await response.Result.Content.ReadAsStringAsync();
+            if (!string.IsNullOrEmpty(content) && response.Result.StatusCode == HttpStatusCode.OK)
             {
-                string uri = $"http://{_Api_ip}:{_Api_port}/api/v2/log/sync/{server.Ip}";
-                // logger.Info(uri);
-                var response = Utils.Http.GetAsync(uri);
-                string content = await response.Result.Content.ReadAsStringAsync();
-                if (!string.IsNullOrEmpty(content) && response.Result.StatusCode == HttpStatusCode.OK)
+                List<TitanMessage> titanmsgs = JsonConvert.DeserializeObject<List<TitanMessage>>(content);
+                List<TitanActiveAlarm> alarms = new List<TitanActiveAlarm>();
+
+                foreach (var msg in titanmsgs)
                 {
-                    List<TitanMessage> titanmsgs = JsonConvert.DeserializeObject<List<TitanMessage>>(content);
-                    List<TitanActiveAlarm> alarms = new List<TitanActiveAlarm>();
-
-                    foreach (var msg in titanmsgs)
+                    foreach (var state in msg.state)
                     {
-                        foreach (var state in msg.state)
+                        if (string.IsNullOrEmpty(state.Level))
                         {
-                            if (string.IsNullOrEmpty(state.Level))
+                            if (state.Name.Contains("Service State Is Invalid") || state.Name.Contains("Service State Is Stopped"))
                             {
-                                if (state.Name.Contains("Service State Is Invalid") || state.Name.Contains("Service State Is Stopped"))
-                                {
-                                    state.Level = "Critical";
-                                }
-                                else
-                                {
-                                    state.Level = "Information";
-                                }
+                                state.Level = "Critical";
                             }
-
-                            // logger.Info($"*** API Info *** {server.Ip}, {msg.name}, {state.Level}, {state.Name}, {state.Description}");
-                            TitanActiveAlarm alarm = new TitanActiveAlarm
+                            else
                             {
-                                ChannelName = msg.name,
-                                Level = state.Level,
-                                Value = state.Name,
-                                Desc = state.Description
-                            };
-                            alarms.Add(alarm);
+                                state.Level = "Information";
+                            }
                         }
-                    }
 
-                    // 동기화
-                    await _semaphore.WaitAsync();
-                    try
-                    {
-                        var oldAlarm = oldAlarms.Where(x => x.Ip == server.Ip).FirstOrDefault();
-                        await LogManager.ActiveAlarm(server.Ip, alarms, oldAlarm.Alarms);
-                        oldAlarm.Alarms = alarms;
-                    }
-                    catch (Exception e)
-                    {
-                        logger.Error(e.ToString());
-                    }
-                    finally
-                    {
-                        _semaphore.Release();
+                        if (server.AlarmIgnore && state.Name.Contains("Service Output Stream") && state.Description.Contains("No output stream"))
+                        {
+                            // Service Output Stream, No output stream.
+                            Snmp snmp = new Snmp
+                            {
+                                IP = server.Ip,
+                                Port = "65535",
+                                Community = "public",
+                                Oid = SnmpService._ServiceInitOid,
+                                LevelString = Server.EnumStatus.Normal.ToString(),
+                                TypeValue = "end",
+                                TranslateValue = "Service is initializing",
+                                Main = 0,
+                                Channel = 0
+                            };
+                            await LogManager.LoggingDatabase(snmp);
+                            logger.Info($"{snmp.IP} Alarm is enabled");
+                            server.AlarmIgnore = false;
+                        }
+
+                        logger.Info($"*** API Info *** {server.Ip}, {msg.name}, {state.Level}, {state.Name}, {state.Description}");
+                        TitanActiveAlarm alarm = new TitanActiveAlarm
+                        {
+                            ChannelName = msg.name,
+                            Level = state.Level,
+                            Value = state.Name,
+                            Desc = state.Description
+                        };
+                        alarms.Add(alarm);
                     }
                 }
+
+                // 동기화
+                await _semaphore.WaitAsync();
+                try
+                {
+                    var oldAlarm = oldAlarms.Where(x => x.Ip == server.Ip).FirstOrDefault();
+                    if (!server.AlarmIgnore)
+                    {
+                        await LogManager.ActiveAlarm(server.Ip, alarms, oldAlarm.Alarms);
+                    }
+                    oldAlarm.Alarms = alarms;
+                }
+                catch (Exception e)
+                {
+                    logger.Error(e.ToString());
+                }
+                finally
+                {
+                    _semaphore.Release();
+                }
             }
+
             return true;
         }
 
@@ -374,20 +396,9 @@ namespace AMS_Service
                 {
                     if (!string.IsNullOrEmpty(server.ModelName))
                     {
-                        if (server.AlarmIgnore)
+                        if (oldServer.IsConnect == Server.EnumIsConnect.Disconnect)
                         {
-                            server.AlarmIgnoreCount++;
-                        }
-                        if (server.AlarmIgnoreCount > server.AlarmIgnoreSecond)
-                        {
-                            server.AlarmIgnore = false;
-                            server.AlarmIgnoreCount = 0;
-                            logger.Info($"({server.Ip}) alarm is enabled");
-                        }
-                        //if (oldServer.IsConnect == Server.EnumIsConnect.Disconnect && !server.AlarmIgnore)
-                        if (!server.AlarmIgnore)
-                        {
-                            logger.Info($"{snmp.IP} is Reconnected (${server.AlarmIgnoreSecond} sec delayed)");
+                            logger.Info($"{snmp.IP} is Reconnected");
                             server.AlarmIgnoreCount = 0;
                             snmp.IP = server.Ip;
                             snmp.Port = "65535";
@@ -399,6 +410,20 @@ namespace AMS_Service
                             snmp.Main = 0;
                             snmp.Channel = 0;
                             await LogManager.LoggingDatabase(snmp);
+
+                            if (server.AlarmIgnore)
+                            {
+                                snmp.IP = server.Ip;
+                                snmp.Port = "65535";
+                                snmp.Community = "public";
+                                snmp.Oid = SnmpService._ServiceInitOid;
+                                snmp.LevelString = Server.EnumStatus.Critical.ToString();
+                                snmp.TypeValue = "begin";
+                                snmp.TranslateValue = "Service is initializing";
+                                snmp.Main = 0;
+                                snmp.Channel = 0;
+                                await LogManager.LoggingDatabase(snmp);
+                            }
                         }
                     }
                     server.IsConnect = Server.EnumIsConnect.Connect;
