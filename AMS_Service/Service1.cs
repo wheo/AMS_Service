@@ -127,6 +127,7 @@ namespace AMS_Service
                 logger.Info($"Snmp Trap Waiting Time : {_SnmpTrapWaitingTime}");
                 logger.Info($"API Work Polling Sec : {_apiWorkPollingSec}");
                 logger.Info($"API Error Check Polling Sec : {_apiErrorCheckPollingSec}");
+                logger.Info($"Http Get Timeout : {_HttpTimeout}");
             }
             catch (FileLoadException e)
             {
@@ -227,6 +228,10 @@ namespace AMS_Service
                             _semaphore.Release();
                         }
                     }
+                    else
+                    {
+                        logger.Error($"response Code : {response.Result.StatusCode}");
+                    }
                 }
                 catch (Exception e)
                 {
@@ -284,6 +289,38 @@ namespace AMS_Service
             logger.Info(" *** Api Worker exit ***");
         }
 
+        private bool StreamOutputCheck(List<TitanActiveAlarm> alarms, List<TitanActiveAlarm> oldAlarms)
+        {
+            var deletedAlarms = oldAlarms.Where(oldAlarm => !alarms.Any(alarm =>
+                oldAlarm.Value == alarm.Value
+                && oldAlarm.Desc == alarm.Desc
+                && oldAlarm.Level == alarm.Level
+                && oldAlarm.ChannelName == alarm.ChannelName)).ToList();
+            bool ret = false;
+            foreach (TitanActiveAlarm deletedAlarm in deletedAlarms)
+            {
+                logger.Info($"*** waiting for delete *** {deletedAlarm.Value}, {deletedAlarm.Desc}");
+                // 2023-04-24 Video Signal Missing 이 해제될 때 추가함
+                if (deletedAlarm.Value.Contains("Service Output Stream &&") && deletedAlarm.Desc.Contains("No output stream"))
+                {
+                    //No output stream No output stream 이 end를 받을 때
+
+                    ret = true;
+                    logger.Info($"Recevied end alarm(Service Output Stream, No output stream) ({ret.ToString()})");
+                    break;
+                }
+            }
+            // 특정 ip의 모든 active에 Video Signal Missing이 없는 경우
+            bool noneContain = !alarms.Exists(item => item.Value.Contains("Video Signal Missing"));
+            if (noneContain)
+            {
+                ret = true;
+                logger.Info($"All Active Alarm not include Video Signal Missing ({ret.ToString()})");
+            }
+
+            return ret;
+        }
+
         private List<OldAlarms> oldAlarms = new List<OldAlarms>();
 
         private async Task<bool> ApiTask(Server server)
@@ -300,54 +337,35 @@ namespace AMS_Service
             // logger.Info(uri);
             var response = Utils.Http.GetAsync(uri);
             string content = await response.Result.Content.ReadAsStringAsync();
+            //logger.Info(content);
             if (!string.IsNullOrEmpty(content) && response.Result.StatusCode == HttpStatusCode.OK)
             {
                 List<TitanMessage> titanmsgs = JsonConvert.DeserializeObject<List<TitanMessage>>(content);
                 List<TitanActiveAlarm> alarms = new List<TitanActiveAlarm>();
 
-                foreach (var msg in titanmsgs)
+                foreach (var titan in titanmsgs)
                 {
-                    foreach (var state in msg.state)
+                    foreach (var msg in titan.messages)
                     {
-                        if (string.IsNullOrEmpty(state.Level))
+                        if (string.IsNullOrEmpty(msg.Level))
                         {
-                            if (state.Name.Contains("Service State Is Invalid") || state.Name.Contains("Service State Is Stopped"))
+                            if (msg.Name.Contains("Service State Is Invalid") || msg.Name.Contains("Service State Is Stopped"))
                             {
-                                state.Level = "Critical";
+                                msg.Level = "Critical";
                             }
                             else
                             {
-                                state.Level = "Information";
+                                msg.Level = "Information";
                             }
                         }
 
-                        if (server.AlarmIgnore && state.Name.Contains("Service Output Stream") && state.Description.Contains("No output stream"))
-                        {
-                            // Service Output Stream, No output stream.
-                            Snmp snmp = new Snmp
-                            {
-                                IP = server.Ip,
-                                Port = "65535",
-                                Community = "public",
-                                Oid = SnmpService._ServiceInitOid,
-                                LevelString = Server.EnumStatus.Normal.ToString(),
-                                TypeValue = "end",
-                                TranslateValue = "Service is initializing",
-                                Main = 0,
-                                Channel = 0
-                            };
-                            await LogManager.LoggingDatabase(snmp);
-                            logger.Info($"{snmp.IP} Alarm is enabled");
-                            server.AlarmIgnore = false;
-                        }
-
-                        logger.Info($"*** API Info *** {server.Ip}, {msg.name}, {state.Level}, {state.Name}, {state.Description}");
+                        logger.Info($"*** API Info *** {server.Ip}, {titan.state}, {titan.name}, {msg.Level}, {msg.Name}, {msg.Description}");
                         TitanActiveAlarm alarm = new TitanActiveAlarm
                         {
-                            ChannelName = msg.name,
-                            Level = state.Level,
-                            Value = state.Name,
-                            Desc = state.Description
+                            ChannelName = titan.name,
+                            Level = msg.Level,
+                            Value = msg.Name,
+                            Desc = msg.Description
                         };
                         alarms.Add(alarm);
                     }
@@ -362,6 +380,27 @@ namespace AMS_Service
                     {
                         await LogManager.ActiveAlarm(server.Ip, alarms, oldAlarm.Alarms);
                     }
+
+                    if (server.AlarmIgnore && StreamOutputCheck(alarms, oldAlarm.Alarms))
+                    {
+                        Snmp snmp = new Snmp
+                        {
+                            IP = server.Ip,
+                            Port = "65535",
+                            Community = "public",
+                            Oid = SnmpService._ServiceInitOid,
+                            LevelString = Server.EnumStatus.Normal.ToString(),
+                            TypeValue = "end",
+                            TranslateValue = "Service is initializing",
+                            Main = 0,
+                            Channel = 0
+                        };
+                        await LogManager.LoggingDatabase(snmp);
+                        server.AlarmIgnore = false;
+                        server.AlarmIgnoreCount = 0;
+                        logger.Info($"{snmp.IP} Alarm is enabled");
+                    }
+
                     oldAlarm.Alarms = alarms;
                 }
                 catch (Exception e)
@@ -435,8 +474,8 @@ namespace AMS_Service
                     {
                         if (oldServer.IsConnect == Server.EnumIsConnect.Connect)
                         {
-                            logger.Info($"{snmp.IP} is disconnected and alarm is disabled");
-                            server.AlarmIgnore = true;
+                            logger.Info($"{snmp.IP} is disconnected");
+                            // server.AlarmIgnore = true;
                             snmp.IP = server.Ip;
                             snmp.Port = "65535";
                             snmp.Community = "public";
@@ -447,6 +486,15 @@ namespace AMS_Service
                             snmp.Main = 0;
                             snmp.Channel = 0;
                             await LogManager.LoggingDatabase(snmp);
+                        }
+                        if (oldServer.IsConnect == Server.EnumIsConnect.Disconnect)
+                        {
+                            server.AlarmIgnoreCount += 1;
+                        }
+                        if (server.AlarmIgnoreCount > 10)
+                        {
+                            server.AlarmIgnore = true;
+                            logger.Info($"{snmp.IP} alarm is disabled");
                         }
                     }
                     server.IsConnect = Server.EnumIsConnect.Disconnect;
@@ -488,7 +536,9 @@ namespace AMS_Service
             logger.Info($"*** Service is loaded ***");
             foreach (Server s in firstServers)
             {
-                logger.Info($"{s.Ip}, {s.UnitName}, InitConnect : {s.IsConnect}");
+                s.AlarmIgnore = false; // 초기화 때 alarm 은 기본값이 무시 안함 ** (중요) **
+                s.AlarmIgnoreCount = 0;
+                logger.Info($"{s.Ip}, {s.UnitName}, InitConnect : {s.IsConnect}, AlarmIgnore : {s.AlarmIgnore.ToString()}");
             }
             logger.Info($"*************************************");
 

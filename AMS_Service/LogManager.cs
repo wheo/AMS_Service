@@ -182,7 +182,6 @@ VALUES (@ip, @id, @uid, (SELECT name from server WHERE ip = @ip), @level, @value
             // oldAlarms 와 alarms을 비교함
             // alarms 에 새로운 알람이 있는지 확인
             // old 알람에서 없어진 알람이 있는지 확인
-
             var newAlarms = alarms.Where(alarm => !oldAlarms.Any(oldAlarm =>
             oldAlarm.Value == alarm.Value
             && oldAlarm.Desc == alarm.Desc

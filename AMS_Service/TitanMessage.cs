@@ -32,10 +32,11 @@ namespace AMS_Service
     public class TitanMessage
     {
         public string name { get; set; }
-        public List<State> state { get; set; }
+        public List<Messages> messages { get; set; }
+        public string state { get; set; }
     }
 
-    public class State
+    public class Messages
     {
         public string Name { get; set; }
         public string Description { get; set; }
