@@ -297,6 +297,7 @@ namespace AMS_Service
                 && oldAlarm.Level == alarm.Level
                 && oldAlarm.ChannelName == alarm.ChannelName)).ToList();
             bool ret = false;
+            /*
             foreach (TitanActiveAlarm deletedAlarm in deletedAlarms)
             {
                 logger.Info($"*** waiting for delete *** {deletedAlarm.Value}, {deletedAlarm.Desc}");
@@ -310,12 +311,13 @@ namespace AMS_Service
                     break;
                 }
             }
+            */
             // 특정 ip의 모든 active에 Video Signal Missing이 없는 경우
             bool noneContain = !alarms.Exists(item => item.Value.Contains("Video Signal Missing"));
             if (noneContain)
             {
                 ret = true;
-                logger.Info($"All Active Alarm not include Video Signal Missing ({ret.ToString()})");
+                logger.Info($"All Active Alarm not include Video Signal Missing");
             }
 
             return ret;
@@ -380,10 +382,6 @@ namespace AMS_Service
                 try
                 {
                     var oldAlarm = oldAlarms.Where(x => x.Ip == server.Ip).FirstOrDefault();
-                    if (!server.AlarmIgnore)
-                    {
-                        await LogManager.ActiveAlarm(server.Ip, alarms, oldAlarm.Alarms);
-                    }
 
                     if (server.AlarmIgnore && StreamOutputCheck(alarms, oldAlarm.Alarms))
                     {
@@ -403,6 +401,11 @@ namespace AMS_Service
                         server.AlarmIgnore = false;
                         server.AlarmIgnoreCount = 0;
                         logger.Info($"{snmp.IP} Alarm is enabled");
+                    }
+
+                    if (!server.AlarmIgnore)
+                    {
+                        await LogManager.ActiveAlarm(server.Ip, alarms, oldAlarm.Alarms);
                     }
 
                     oldAlarm.Alarms = alarms;
