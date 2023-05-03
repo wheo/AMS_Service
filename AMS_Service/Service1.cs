@@ -367,7 +367,11 @@ namespace AMS_Service
                             Value = msg.Name,
                             Desc = msg.Description
                         };
-                        alarms.Add(alarm);
+                        if (!titan.state.Contains("Pending"))
+                        {
+                            //Pending 일 경우 액티브 알람에 넣지 않음
+                            alarms.Add(alarm);
+                        }
                     }
                 }
 
