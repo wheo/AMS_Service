@@ -24,6 +24,8 @@ namespace AMS_Service
     {
         public string Id { get; set; }
         public string ChannelName { get; set; }
+
+        public string State { get; set; }
         public string Level { get; set; }
 
         private string _Value;
