@@ -258,7 +258,7 @@ VALUES (@ip, @id, @uid, (SELECT name from server WHERE ip = @ip), @level, @value
                     foreach (var deleted in deletedAlarms)
                     {
                         logger.Info($"deleted alarm ({deleted.State}), {Ip}, {deleted.ChannelName}, {deleted.Value}, {deleted.Desc}");
-                        if (deleted.State != "Pending" || deleted.State != "Starting")
+                        if (deleted.State != "Pending" && deleted.State != "Starting")
                         {
                             cmd.CommandText = string.Format(@"DELETE FROM active WHERE ip = @ip AND level = @level AND channel_value = @channel_value AND value = @value AND _desc = @desc");
                             cmd.Parameters.AddWithValue("@ip", Ip);
@@ -278,12 +278,16 @@ VALUES (@ip, @id, @uid, (SELECT name from server WHERE ip = @ip), @level, @value
                             await cmd.ExecuteNonQueryAsync();
                             cmd.Parameters.Clear();
                         }
+                        else
+                        {
+                            logger.Info($"Because of deleted alarm state ({deleted.State}), this alarm is not registered");
+                        }
                     }
 
                     foreach (var alarm in newAlarms)
                     {
                         logger.Info($"new alarm ({alarm.State}), {Ip}, {alarm.ChannelName}, {alarm.Value}, {alarm.Desc}");
-                        if (alarm.State != "Pending" || alarm.State != "Starting")
+                        if (alarm.State != "Pending" && alarm.State != "Starting")
                         {
                             cmd.CommandText = string.Format(@"INSERT INTO active (id, ip, channel_value, level, value, _desc)
 VALUES (@id, @ip, @channel_value, @level, @value, @desc)");
@@ -307,6 +311,10 @@ VALUES (@ip, @id, @channel_value, @level, @value, (SELECT name from server WHERE
 
                             await cmd.ExecuteNonQueryAsync();
                             cmd.Parameters.Clear();
+                        }
+                        else
+                        {
+                            logger.Info($"Because of new alarm state ({alarm.State}), this alarm is not registered");
                         }
                     }
                     trans.Commit();
